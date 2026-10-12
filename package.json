@@ -1,0 +1,22 @@
+{
+  "name": "arena-of-legends",
+  "private": true,
+  "license": "MIT",
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "shared",
+    "client"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w client",
+    "build": "npm run typecheck && npm run build -w client",
+    "typecheck": "tsc -p shared --noEmit && tsc -p client --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vitest": "2.1.9"
+  }
+}
