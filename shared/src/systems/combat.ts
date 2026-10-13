@@ -1,6 +1,11 @@
 import {
   CHAMPION_AGGRO_TIME,
   CHAMPION_KILL_GOLD,
+  DRAKE_TEAM_GOLD,
+  MONSTERS,
+  REVEAL_TIME,
+  WARD_GOLD,
+  crimsonBurn,
   MAX_LEVEL,
   MINION_STATS,
   PROJECTILE_SPEED,
@@ -10,12 +15,15 @@ import {
   xpToNext,
 } from '../constants.js';
 import { recomputeChampionStats } from '../items.js';
-import { otherTeam } from '../map.js';
+import { BLESSING_DURATION, CAMP_SPECS, type MonsterType } from '../constants.js';
+import { MAP, type Team, otherTeam } from '../map.js';
 import { dist, distToSegment, moveToward } from '../math.js';
 import type { DamageKind, Entity, EntityId, ProjectileVisual } from '../types.js';
 import type { World } from '../world.js';
 import { clearPath } from './movement.js';
-import { absorbWithShields, applyStatus, armorOf, attackSpeedOf } from './status.js';
+import { onMonsterDamaged } from './jungle.js';
+import { absorbWithShields, applyStatus, armorOf, attackSpeedOf, hasBlessing, inStasis } from './status.js';
+import { isVisibleTo } from './vision.js';
 
 /** Edge-to-edge distance check against the attacker's range. */
 export function inAttackRange(a: Entity, b: Entity, extra = 0): boolean {
@@ -24,6 +32,7 @@ export function inAttackRange(a: Entity, b: Entity, extra = 0): boolean {
 
 /** Inner towers are protected by outer towers; the nexus by all inner towers. */
 export function isInvulnerable(world: World, e: Entity): boolean {
+  if (inStasis(e)) return true;
   if (e.kind === 'tower' && e.structure?.tier === 2) {
     for (const o of world.entities.values()) {
       if (o.kind === 'tower' && !o.dead && o.team === e.team && o.structure?.lane === e.structure.lane && o.structure?.tier === 1) {
@@ -41,12 +50,25 @@ export function isInvulnerable(world: World, e: Entity): boolean {
   return false;
 }
 
+/** Alive, hostile, damageable and visible to the attacker's team. */
 export function canTarget(world: World, attacker: Entity, target: Entity | undefined): target is Entity {
-  return !!target && !target.dead && target.team !== attacker.team && !isInvulnerable(world, target);
+  return (
+    !!target &&
+    !target.dead &&
+    target.team !== attacker.team &&
+    !isInvulnerable(world, target) &&
+    isVisibleTo(world, attacker.team, target)
+  );
+}
+
+/** Attacking or casting gives away your position, even from brush. */
+export function reveal(world: World, e: Entity): void {
+  if (e.champion) e.revealedUntil = world.time + REVEAL_TIME;
 }
 
 export function performAttack(world: World, attacker: Entity, target: Entity): void {
   attacker.attackCooldown = 1 / attackSpeedOf(attacker);
+  reveal(world, attacker);
   world.emit({ type: 'attack', sourceId: attacker.id, targetId: target.id });
   if (!attacker.ranged) {
     applyDamage(world, attacker.id, target, attacker.attackDamage, 'physical', true);
@@ -56,7 +78,7 @@ export function performAttack(world: World, attacker: Entity, target: Entity): v
     attacker.kind === 'tower' ? 'tower' : attacker.kind === 'minion' ? 'caster' : 'attack';
   world.projectiles.push({
     id: world.newId(),
-    team: attacker.team,
+    team: attacker.team as Team, // Only champions, casters and towers fire projectiles.
     sourceId: attacker.id,
     visual,
     pos: { ...attacker.pos },
@@ -72,6 +94,12 @@ export function performAttack(world: World, attacker: Entity, target: Entity): v
 /** Applies mitigated damage (shields absorb first). Auto-attacks heal the source by its lifesteal. */
 export function applyDamage(world: World, sourceId: EntityId, target: Entity, raw: number, kind: DamageKind, isAttack = false): void {
   if (target.dead || isInvulnerable(world, target)) return;
+  // Wards ignore abilities and break after a few hits.
+  if (target.kind === 'ward') {
+    if (!isAttack) return;
+    raw = 1;
+    kind = 'true';
+  }
   const resist = kind === 'physical' ? armorOf(target) : kind === 'magic' ? target.magicResist : 0;
   const amount = raw * (100 / (100 + Math.max(0, resist)));
   target.hp -= absorbWithShields(target, amount);
@@ -81,6 +109,12 @@ export function applyDamage(world: World, sourceId: EntityId, target: Entity, ra
   const source = world.get(sourceId);
   if (isAttack && source && !source.dead && source.lifesteal > 0) {
     source.hp = Math.min(source.maxHp, source.hp + amount * source.lifesteal);
+  }
+  if (target.monster && source) onMonsterDamaged(world, target, source);
+  // Crimson blessing: attacks burn and slow.
+  if (isAttack && source && hasBlessing(source, 'crimson') && !target.dead && target.kind !== 'tower' && target.kind !== 'nexus') {
+    target.hp -= crimsonBurn(source.champion?.level ?? 1);
+    applyStatus(target, { type: 'slow', amount: 0.15, duration: 1 });
   }
   if (target.champion) {
     world.cancelRecall(target);
@@ -96,10 +130,17 @@ function handleDeath(world: World, victim: Entity, killer: Entity | undefined): 
   victim.hp = 0;
   victim.dead = true;
   victim.targetId = null;
+  // Jungle blessings pass to the champion who takes them down.
+  const blessing = victim.statuses.find((s) => s.type === 'blessing');
+  if (blessing && killer?.champion && killer.team !== victim.team) killer.statuses.push({ ...blessing });
   victim.statuses = [];
   clearPath(victim);
   world.emit({ type: 'death', id: victim.id, killerId: killer?.id ?? null, pos: { ...victim.pos } });
 
+  if (victim.team === 'neutral') {
+    handleMonsterDeath(world, victim, killer);
+    return;
+  }
   const enemyTeam = otherTeam(victim.team);
   const nearbyEnemyChamps = world.champions().filter(
     (c) => !c.dead && c.team === enemyTeam && dist(c.pos, victim.pos) <= XP_SHARE_RANGE,
@@ -137,6 +178,9 @@ function handleDeath(world: World, victim: Entity, killer: Entity | undefined): 
       world.emit({ type: 'structureDestroyed', id: victim.id, kind: victim.kind, team: victim.team });
       break;
     }
+    case 'ward':
+      if (killer?.champion) addGold(world, killer, WARD_GOLD, victim);
+      break;
     case 'nexus': {
       world.emit({ type: 'structureDestroyed', id: victim.id, kind: victim.kind, team: victim.team });
       world.winner = enemyTeam;
@@ -144,6 +188,29 @@ function handleDeath(world: World, victim: Entity, killer: Entity | undefined): 
       break;
     }
   }
+}
+
+function handleMonsterDeath(world: World, victim: Entity, killer: Entity | undefined): void {
+  const m = victim.monster!;
+  const def = MONSTERS[m.type as MonsterType];
+  const team: Team | null = killer && killer.team !== 'neutral' ? killer.team : null;
+  if (team) {
+    if (killer?.champion && def.gold > 0) addGold(world, killer, def.gold, victim);
+    const nearby = world.champions().filter((c) => !c.dead && c.team === team && dist(c.pos, victim.pos) <= XP_SHARE_RANGE);
+    shareXp(world, nearby, def.xp);
+  }
+  const camp = MAP.camps.find((c) => c.id === m.campId);
+  const epic = !!camp && !!(CAMP_SPECS[camp.type] as { epic?: boolean }).epic;
+  if (epic && team) {
+    for (const c of world.champions()) if (c.team === team && !c.dead) addGold(world, c, DRAKE_TEAM_GOLD, c);
+  }
+  if (killer?.champion && (m.type === 'golem' || m.type === 'sentinel')) {
+    const kind = m.type === 'golem' ? 'azure' : 'crimson';
+    killer.statuses = killer.statuses.filter((s) => s.type !== 'blessing' || s.blessing !== kind);
+    killer.statuses.push({ type: 'blessing', blessing: kind, remaining: BLESSING_DURATION });
+    world.emit({ type: 'blessingGained', id: killer.id, blessing: kind });
+  }
+  world.emit({ type: 'monsterSlain', campId: m.campId, monsterType: m.type, killerId: killer?.id ?? null, team, epic });
 }
 
 export function addGold(world: World, champ: Entity, amount: number, at: Entity): void {
@@ -196,7 +263,7 @@ export function updateProjectiles(world: World, dt: number): void {
       p.remainingRange = (p.remainingRange ?? 0) - step;
       const hits: Entity[] = [];
       for (const e of world.entities.values()) {
-        if (e.dead || e.team === p.team || (e.kind !== 'champion' && e.kind !== 'minion')) continue;
+        if (e.dead || e.team === p.team || (e.kind !== 'champion' && e.kind !== 'minion' && e.kind !== 'monster')) continue;
         if (p.hitIds?.includes(e.id)) continue;
         if (distToSegment(e.pos, from, p.pos) > (p.width ?? 0) + e.radius) continue;
         hits.push(e);
@@ -229,7 +296,7 @@ export function updateZones(world: World, dt: number): void {
     const victims = world.unitsNear(
       z.pos,
       z.radius,
-      (e) => e.team !== z.team && (e.kind === 'champion' || e.kind === 'minion'),
+      (e) => e.team !== z.team && (e.kind === 'champion' || e.kind === 'minion' || e.kind === 'monster'),
     );
     for (const v of victims) {
       applyDamage(world, z.sourceId, v, z.damage, z.damageKind);

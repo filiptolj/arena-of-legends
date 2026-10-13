@@ -91,7 +91,7 @@ export class InputController {
     for (const e of this.world.entities.values()) {
       if (e.dead || e.team === player.team) continue;
       const view = this.views.get(e.id);
-      if (!view) continue;
+      if (!view || !view.seen) continue;
       a.copy(view.renderPos).project(this.cam.camera);
       b.copy(view.renderPos).setY(view.height * 0.8).project(this.cam.camera);
       const ax = (a.x * 0.5 + 0.5) * r.width;
@@ -161,6 +161,12 @@ export class InputController {
     if (slot !== undefined) {
       const g = this.pickGround(this.cam.mouse.x, this.cam.mouse.y);
       if (g) this.cb.send({ type: 'cast', unitId: this.playerId, slot, target: g });
+      return;
+    }
+    const itemSlot = /^Digit([1-6])$/.exec(e.code);
+    if (itemSlot) {
+      const g = this.pickGround(this.cam.mouse.x, this.cam.mouse.y);
+      if (g) this.cb.send({ type: 'useItem', unitId: this.playerId, slot: Number(itemSlot[1]) - 1, target: g });
       return;
     }
     switch (e.code) {

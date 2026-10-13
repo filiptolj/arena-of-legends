@@ -1,10 +1,16 @@
 import { type AbilityDef, CHAMPIONS, type DamageSpec, getAbility } from '../champions.js';
+import { AZURE_CDR, SIGHT_RANGE, WARD_LIFETIME } from '../constants.js';
+import { ITEMS } from '../items.js';
 import { type Vec2, dist, distToSegment, moveToward, normalize, sub } from '../math.js';
+import type { Team } from '../map.js';
 import type { AbilitySlot, Entity } from '../types.js';
 import type { World } from '../world.js';
-import { applyDamage } from './combat.js';
+import { applyDamage, reveal } from './combat.js';
 import { clearPath, faceToward } from './movement.js';
-import { applyStatus, isStunned } from './status.js';
+import { applyStatus, hasBlessing, isStunned } from './status.js';
+
+const MAX_WARDS_PER_CHAMPION = 2;
+const MAX_TOTAL_CDR = 0.55;
 
 export type CastFailure = 'dead' | 'stunned' | 'cooldown' | 'mana' | 'level';
 
@@ -19,7 +25,52 @@ export function abilityDamage(def: AbilityDef, caster: Entity): number {
 }
 
 export function abilityCooldown(def: AbilityDef, caster: Entity): number {
-  return def.cooldown * (1 - caster.cooldownReduction);
+  const cdr = caster.cooldownReduction + (hasBlessing(caster, 'azure') ? AZURE_CDR : 0);
+  return def.cooldown * (1 - Math.min(MAX_TOTAL_CDR, cdr));
+}
+
+/** An item's active presented as an ability, so it runs through the same effect code. */
+export function itemActiveAbility(itemId: string): AbilityDef | null {
+  const item = ITEMS[itemId];
+  if (!item?.active) return null;
+  const a = item.active;
+  return {
+    id: `item:${itemId}`,
+    name: a.name,
+    description: a.description,
+    icon: item.icon,
+    color: 0xffe9a8,
+    cooldown: a.cooldown,
+    manaCost: 0,
+    range: a.range,
+    requiredLevel: 1,
+    effect: a.effect,
+  };
+}
+
+export type ItemUseFailure = 'dead' | 'stunned' | 'cooldown' | 'empty' | 'noActive';
+
+export function itemUseBlocker(e: Entity, slot: number): ItemUseFailure | null {
+  const c = e.champion;
+  if (!c || e.dead) return 'dead';
+  const id = c.items[slot];
+  if (!id) return 'empty';
+  if (!ITEMS[id].active) return 'noActive';
+  if ((c.itemCooldowns[id] ?? 0) > 0) return 'cooldown';
+  if (isStunned(e) || c.dash) return 'stunned';
+  return null;
+}
+
+/** Uses the active of the item in `slot`; returns true on success. Item cooldowns ignore CDR. */
+export function useItemActive(world: World, e: Entity, slot: number, target: Vec2): boolean {
+  if (itemUseBlocker(e, slot)) return false;
+  const c = e.champion!;
+  const id = c.items[slot]!;
+  const def = itemActiveAbility(id)!;
+  performAbility(world, e, def, target);
+  c.itemCooldowns[id] = def.cooldown;
+  world.emit({ type: 'itemUsed', id: e.id, itemId: id, pos: { ...target } });
+  return true;
 }
 
 export function abilityOf(e: Entity, slot: AbilitySlot): AbilityDef {
@@ -43,6 +94,17 @@ export function castAbility(world: World, e: Entity, slot: AbilitySlot, target: 
   if (castBlocker(e, slot)) return false;
   const c = e.champion!;
   const def = abilityOf(e, slot);
+  performAbility(world, e, def, target);
+  e.mana -= def.manaCost;
+  c.abilities[slot].cooldown = abilityCooldown(def, e);
+  world.emit({ type: 'cast', id: e.id, slot, abilityId: def.id, pos: { ...e.pos }, target: { ...target } });
+  return true;
+}
+
+/** Runs an ability's effect (no cost or cooldown handling). */
+function performAbility(world: World, e: Entity, def: AbilityDef, target: Vec2): void {
+  const c = e.champion!;
+  const team = e.team as Team;
   const dir = normalize(sub(target, e.pos));
   const aim = dir.x === 0 && dir.y === 0 ? { x: Math.sin(e.facing), y: Math.cos(e.facing) } : dir;
   const damage = abilityDamage(def, e);
@@ -53,7 +115,7 @@ export function castAbility(world: World, e: Entity, slot: AbilitySlot, target: 
     case 'skillshot':
       world.projectiles.push({
         id: world.newId(),
-        team: e.team,
+        team,
         sourceId: e.id,
         visual: 'ability',
         abilityId: def.id,
@@ -95,7 +157,7 @@ export function castAbility(world: World, e: Entity, slot: AbilitySlot, target: 
     }
     case 'nova': {
       world.emit({ type: 'nova', id: e.id, abilityId: def.id, pos: { ...e.pos }, radius: fx.radius });
-      const victims = world.unitsNear(e.pos, fx.radius, (o) => o.team !== e.team && (o.kind === 'champion' || o.kind === 'minion'));
+      const victims = world.unitsNear(e.pos, fx.radius, (o) => o.team !== e.team && isUnit(o));
       for (const v of victims) {
         applyDamage(world, e.id, v, damage, kind);
         if (fx.status) applyStatus(v, fx.status);
@@ -106,7 +168,7 @@ export function castAbility(world: World, e: Entity, slot: AbilitySlot, target: 
       const pos = fx.atSelf ? { ...e.pos } : dist(e.pos, target) > def.range ? moveToward(e.pos, target, def.range) : { ...target };
       world.zones.push({
         id: world.newId(),
-        team: e.team,
+        team,
         sourceId: e.id,
         abilityId: def.id,
         pos,
@@ -127,18 +189,48 @@ export function castAbility(world: World, e: Entity, slot: AbilitySlot, target: 
         moveSpeedPct: fx.moveSpeedPct ?? 0,
         armor: fx.armor ?? 0,
       });
-      if (fx.shield) e.statuses.push({ type: 'shield', amount: scaledValue(fx.shield, e), remaining: fx.duration });
+      if (fx.shield || fx.shieldPctMaxHp) {
+        const amount = (fx.shield ? scaledValue(fx.shield, e) : 0) + (fx.shieldPctMaxHp ?? 0) * e.maxHp;
+        e.statuses.push({ type: 'shield', amount, remaining: fx.duration });
+      }
+      if (fx.healPctMaxHp) e.hp = Math.min(e.maxHp, e.hp + e.maxHp * fx.healPctMaxHp);
       world.emit({ type: 'buff', id: e.id, abilityId: def.id });
+      break;
+    case 'stasis':
+      e.statuses.push({ type: 'stasis', remaining: fx.duration });
+      e.order = { type: 'idle' };
+      e.targetId = null;
+      clearPath(e);
+      world.emit({ type: 'buff', id: e.id, abilityId: def.id });
+      break;
+    case 'ward':
+      placeWard(world, e, dist(e.pos, target) > def.range ? moveToward(e.pos, target, def.range) : target);
       break;
   }
 
   if (fx.type === 'skillshot' || fx.type === 'blink' || fx.type === 'dash' || (fx.type === 'zone' && !fx.atSelf)) {
     faceToward(e, target);
   }
-  e.mana -= def.manaCost;
-  c.abilities[slot].cooldown = abilityCooldown(def, e);
-  world.emit({ type: 'cast', id: e.id, slot, abilityId: def.id, pos: { ...e.pos }, target: { ...target } });
-  return true;
+  if (fx.type !== 'ward') reveal(world, e);
+}
+
+const isUnit = (o: Entity): boolean => o.kind === 'champion' || o.kind === 'minion' || o.kind === 'monster';
+
+function placeWard(world: World, owner: Entity, at: Vec2): void {
+  const pos = world.nav.nearestWalkable(at, 6);
+  // Only the newest few wards per champion survive.
+  const mine = [...world.entities.values()]
+    .filter((w) => w.kind === 'ward' && !w.dead && w.ward?.ownerId === owner.id)
+    .sort((a, b) => a.ward!.expiresAt - b.ward!.expiresAt);
+  while (mine.length >= MAX_WARDS_PER_CHAMPION) mine.shift()!.dead = true;
+
+  const w = world.createEntity('ward', owner.team, pos, {
+    maxHp: 3, maxMana: 0, hpRegen: 0, manaRegen: 0, armor: 0, magicResist: 0,
+    attackDamage: 0, attackRange: 0, attackSpeed: 0, moveSpeed: 0, radius: 0.4, ranged: false,
+  });
+  w.sightRange = SIGHT_RANGE.ward;
+  w.ward = { ownerId: owner.id, expiresAt: world.time + WARD_LIFETIME };
+  world.emit({ type: 'wardPlaced', id: w.id, ownerId: owner.id, pos: { ...pos } });
 }
 
 /** Advances an active dash. Returns true while the champion is still dashing. */
@@ -155,7 +247,7 @@ export function updateDash(world: World, e: Entity, dt: number): boolean {
     const fx = def.effect;
     const damage = abilityDamage(def, e);
     for (const o of world.entities.values()) {
-      if (o.dead || o.team === e.team || (o.kind !== 'champion' && o.kind !== 'minion')) continue;
+      if (o.dead || o.team === e.team || !isUnit(o)) continue;
       if (dash.hitIds.includes(o.id)) continue;
       if (distToSegment(o.pos, from, e.pos) > dash.hitRadius + o.radius) continue;
       dash.hitIds.push(o.id);

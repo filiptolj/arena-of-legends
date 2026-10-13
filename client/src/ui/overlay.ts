@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CHAMPIONS, type DamageKind, type EntityId, type Team, type Vec2, type World, isInvulnerable } from '@lol/shared';
+import { CHAMPIONS, type DamageKind, type EntityId, MONSTERS, type MonsterType, type Team, type Vec2, type World, isInvulnerable } from '@lol/shared';
 import type { EntityViewManager } from '../render/entityViews';
 
 interface Bar {
@@ -45,8 +45,18 @@ export class WorldOverlay {
   private createBar(world: World, id: EntityId): Bar {
     const e = world.get(id)!;
     const el = document.createElement('div');
-    const group = e.kind === 'champion' ? 'champion' : e.kind === 'minion' ? 'minion' : 'structure';
-    el.className = `hb ${group} ${e.team === this.playerTeam ? 'ally' : 'enemy'}`;
+    const group =
+      e.kind === 'champion' ? 'champion'
+      : e.kind === 'tower' || e.kind === 'nexus' ? 'structure'
+      : e.kind === 'monster' ? (e.radius >= 1.4 ? 'monster big' : 'monster')
+      : 'minion';
+    el.className = `hb ${group} ${e.team === 'neutral' ? 'neutral' : e.team === this.playerTeam ? 'ally' : 'enemy'}`;
+    if (e.monster && e.radius >= 1.4) {
+      const name = document.createElement('div');
+      name.className = 'hb-name';
+      name.textContent = MONSTERS[e.monster.type as MonsterType].name;
+      el.appendChild(name);
+    }
     const bar: Partial<Bar> = { el };
     if (e.champion) {
       const name = document.createElement('div');
@@ -74,7 +84,7 @@ export class WorldOverlay {
     }
     this.root.appendChild(el);
     bar.fill = fill;
-    bar.width = group === 'champion' ? 90 : group === 'minion' ? 34 : 110;
+    bar.width = group === 'champion' ? 90 : group === 'structure' ? 110 : group === 'monster big' ? 80 : 34;
     bar.lastHp = -1;
     return bar as Bar;
   }
@@ -83,7 +93,7 @@ export class WorldOverlay {
     for (const [id, view] of views.views) {
       const e = world.get(id);
       let bar = this.bars.get(id);
-      if (!e || e.dead || view.dying) {
+      if (!e || e.dead || view.dying || !view.seen) {
         if (bar) {
           bar.el.remove();
           this.bars.delete(id);

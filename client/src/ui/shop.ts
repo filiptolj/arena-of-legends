@@ -168,6 +168,7 @@ export class Shop {
           <div><h3>${sel.name}</h3><div class="gold">💰 ${price}${price !== sel.cost ? ` <s class="muted">${sel.cost}</s>` : ''}</div></div>
         </div>
         <ul class="stat-list">${statLines(sel.stats).map((l) => `<li>${l}</li>`).join('')}</ul>
+        ${sel.active ? `<div class="small"><b>Active – ${sel.active.name}</b> (${sel.active.cooldown}s)<br><span class="muted">${sel.active.description}</span></div>` : ''}
         ${sel.unique ? `<div class="muted small">Unique: ${sel.unique}</div>` : ''}
         ${sel.from.length ? `<div class="muted small">Recipe</div><div class="item-row">${sel.from.map((id) => this.cardHtml(ITEMS[id])).join('')}</div>` : ''}
         ${into.length ? `<div class="muted small">Builds into</div><div class="item-row">${into.map((i) => this.cardHtml(i)).join('')}</div>` : ''}

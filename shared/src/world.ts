@@ -4,6 +4,7 @@ import {
   FIRST_WAVE_AT,
   NEXUS_STATS,
   RECALL_TIME,
+  SIGHT_RANGE,
   STARTING_GOLD,
   TOWER_STATS,
   type UnitStats,
@@ -14,11 +15,13 @@ import { type Vec2, dist } from './math.js';
 import { NavGrid } from './navgrid.js';
 import { buyItem, emptyInventory, sellItem } from './items.js';
 import { BotController } from './ai/bot.js';
-import { castAbility } from './systems/abilities.js';
+import { castAbility, useItemActive } from './systems/abilities.js';
+import { type CampState, createCamps, updateCamps, updateMonster } from './systems/jungle.js';
+import { VISION_INTERVAL_TICKS, computeVision } from './systems/vision.js';
 import { updateProjectiles, updateZones } from './systems/combat.js';
 import { clearPath, separateUnits } from './systems/movement.js';
 import { spawnWave, updateChampion, updateMinion, updateTower } from './systems/units.js';
-import type { Command, Entity, EntityId, EntityKind, GameEvent, Projectile, Zone } from './types.js';
+import type { Command, Entity, EntityId, EntityKind, Faction, GameEvent, Projectile, Zone } from './types.js';
 
 export interface ChampionSpawn {
   team: Team;
@@ -41,6 +44,9 @@ export class World {
   projectiles: Projectile[] = [];
   zones: Zone[] = [];
   winner: Team | null = null;
+  readonly camps: CampState[] = createCamps();
+  /** Entity ids each team can currently see (recomputed every tick). */
+  vision: Record<Team, Set<EntityId>> = { blue: new Set(), red: new Set() };
 
   private events: GameEvent[] = [];
   private commands: Command[] = [];
@@ -59,6 +65,7 @@ export class World {
       const e = this.spawnChampion(c);
       if (c.isBot) this.bots.push(new BotController(e.id));
     }
+    this.vision = computeVision(this);
   }
 
   newId(): number {
@@ -100,14 +107,14 @@ export class World {
     return [...this.entities.values()].filter((e) => e.kind === 'champion');
   }
 
-  createEntity(kind: EntityKind, team: Team, pos: Vec2, stats: UnitStats): Entity {
+  createEntity(kind: EntityKind, team: Faction, pos: Vec2, stats: UnitStats): Entity {
     const e: Entity = {
       id: this.newId(),
       kind,
       team,
       pos: { ...pos },
       prevPos: { ...pos },
-      facing: team === 'blue' ? Math.PI * 0.75 : -Math.PI * 0.25,
+      facing: team === 'blue' ? Math.PI * 0.75 : team === 'red' ? -Math.PI * 0.25 : 0,
       radius: stats.radius,
       hp: stats.maxHp,
       maxHp: stats.maxHp,
@@ -134,6 +141,8 @@ export class World {
       repathTimer: 0,
       statuses: [],
       lastDamagedAt: -Infinity,
+      revealedUntil: -Infinity,
+      sightRange: SIGHT_RANGE[kind],
     };
     this.entities.set(e.id, e);
     return e;
@@ -155,6 +164,7 @@ export class World {
       deaths: 0,
       abilities: def.abilities.map(() => ({ cooldown: 0 })),
       items: emptyInventory(),
+      itemCooldowns: {},
       respawnTimer: 0,
       recallTimer: 0,
       aggroUntil: -Infinity,
@@ -180,6 +190,7 @@ export class World {
       this.waveTimer += WAVE_INTERVAL;
       spawnWave(this);
     }
+    updateCamps(this);
 
     for (const e of this.entities.values()) {
       if (e.attackCooldown > 0) e.attackCooldown -= DT;
@@ -192,6 +203,12 @@ export class World {
           break;
         case 'tower':
           if (!e.dead) updateTower(this, e);
+          break;
+        case 'monster':
+          if (!e.dead) updateMonster(this, e, DT);
+          break;
+        case 'ward':
+          if (e.ward && this.time >= e.ward.expiresAt) e.dead = true;
           break;
         case 'nexus':
           break;
@@ -206,6 +223,7 @@ export class World {
     for (const [id, e] of this.entities) {
       if (e.dead && e.kind !== 'champion') this.entities.delete(id);
     }
+    if (this.tickCount % VISION_INTERVAL_TICKS === 0) this.vision = computeVision(this);
   }
 
   private processCommands(): void {
@@ -255,6 +273,9 @@ export class World {
           break;
         case 'cast':
           if (castAbility(this, e, cmd.slot, cmd.target) && e.champion.recallTimer > 0) this.cancelRecall(e);
+          break;
+        case 'useItem':
+          if (useItemActive(this, e, cmd.slot, cmd.target) && e.champion.recallTimer > 0) this.cancelRecall(e);
           break;
         case 'recall':
           if (e.champion.recallTimer <= 0) {

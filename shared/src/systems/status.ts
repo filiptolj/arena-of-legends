@@ -1,9 +1,18 @@
-import type { Entity, OnHitStatus } from '../types.js';
+import type { Blessing, Entity, OnHitStatus } from '../types.js';
 
 const MAX_ATTACK_SPEED = 2.5;
 
+/** Stunned or in stasis: can't move, attack or cast. */
 export function isStunned(e: Entity): boolean {
-  return e.statuses.some((s) => s.type === 'stun');
+  return e.statuses.some((s) => s.type === 'stun' || s.type === 'stasis');
+}
+
+export function inStasis(e: Entity): boolean {
+  return e.statuses.some((s) => s.type === 'stasis');
+}
+
+export function hasBlessing(e: Entity, b: Blessing): boolean {
+  return e.statuses.some((s) => s.type === 'blessing' && s.blessing === b);
 }
 
 export function attackSpeedOf(e: Entity): number {

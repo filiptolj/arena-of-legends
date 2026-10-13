@@ -27,6 +27,7 @@ Other scripts:
 | Q W E R | Cast at the cursor (R unlocks at level 6) |
 | S / B | Stop / Recall |
 | P | Shop (buy in your fountain or while dead; right-click an item to buy/sell) |
+| 1 – 6 | Use item actives (Ward Totem, Stoneskin, Gale, Time Stop, Bloodlust) |
 | Y / Space | Toggle camera lock / center the camera |
 | Mouse wheel | Zoom |
 | Minimap | Left: pan the camera · Right: move the champion |
@@ -51,6 +52,14 @@ There are 20 items in `shared/src/items.ts`: basic, epic and legendary tiers wit
 Components you already own are discounted from the price, as in LoL. Items give AD, AP,
 attack speed, health, mana, armor, MR, move speed, lifesteal and cooldown reduction (capped at 40%).
 Bots follow each champion's recommended build and recall to shop once they have enough gold.
+
+## Jungle, vision and actives
+
+- **Jungle camps:** Wolves, Raptors, the Azure Golem and the Crimson Sentinel on each side, plus the Ember Drake in the river. Monsters fight back, leash if pulled too far, and respawn on timers shown on the minimap.
+- **Blessings:** the Azure Golem grants +15% cooldown reduction and mana regen. The Crimson Sentinel makes your attacks burn and slow. If you die while holding one, it passes to the enemy champion who killed you. Slaying the drake gives your whole team gold.
+- **Fog of war:** each team sees only what its champions, minions, towers and wards see. Hidden units are never shown, and minions, towers and bots can't target them. Terrain outside your vision is darkened.
+- **Brush:** units in brush are hidden unless an enemy is in the same brush or a ward watches it. Attacking or casting reveals you briefly.
+- **Item actives:** the Ward Totem places wards. Titan Plate (Stoneskin), Storm Bow (Gale), Archmage Staff (Time Stop) and Crimson Edge (Bloodlust) each have an active, cast with keys 1–6.
 
 ## Architecture
 
@@ -78,7 +87,7 @@ added by running `World` on a Node server and sending commands and snapshots ove
 
 - [x] Phase 1: 3D map with 3 lanes, minion waves, towers/nexus, one champion with QWER abilities, bots, HUD, minimap
 - [x] Phase 2a: 4 champions, champion select, item shop with recipes, bot itemization
-- [ ] Phase 2b: jungle camps, fog of war, brush, item actives
+- [x] Phase 2b: jungle camps and blessings, drake, fog of war, brush, wards, item actives
 - [ ] Phase 3: authoritative Node + WebSocket server, lobbies, client prediction
 
 ## License

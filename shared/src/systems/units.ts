@@ -1,4 +1,5 @@
 import {
+  AZURE_MANA_REGEN,
   FOUNTAIN_DPS,
   FOUNTAIN_HEAL_PCT,
   MINION_AGGRO_RANGE,
@@ -13,7 +14,7 @@ import type { World } from '../world.js';
 import { applyDamage, canTarget, inAttackRange, performAttack } from './combat.js';
 import { updateDash } from './abilities.js';
 import { clearPath, faceToward, moveAlongPath } from './movement.js';
-import { isStunned, tickStatuses } from './status.js';
+import { hasBlessing, isStunned, tickStatuses } from './status.js';
 
 const MINION_THINK_INTERVAL = 0.25;
 const CHAMPION_ACQUIRE_BONUS = 3;
@@ -64,11 +65,15 @@ export function attackOrChase(world: World, e: Entity, target: Entity, dt: numbe
   }
 }
 
-/** Nearest valid enemy within `range`. Champions count as slightly farther so units prefer minions. */
+/**
+ * Nearest valid enemy within `range`. Champions count as slightly farther so units prefer minions.
+ * Only champions pick fights with jungle monsters or wards on their own.
+ */
 export function acquireTarget(world: World, e: Entity, range: number, champPenalty = CHAMPION_ACQUIRE_BONUS): Entity | null {
   let best: Entity | null = null;
   let bestScore = Infinity;
   for (const o of world.entities.values()) {
+    if ((o.kind === 'monster' || o.kind === 'ward') && e.kind !== 'champion') continue;
     if (!canTarget(world, e, o)) continue;
     const d = dist(e.pos, o.pos) - o.radius;
     if (d > range) continue;
@@ -150,12 +155,13 @@ export function updateChampion(world: World, e: Entity, dt: number): void {
   }
 
   for (const a of c.abilities) if (a.cooldown > 0) a.cooldown = Math.max(0, a.cooldown - dt);
+  for (const id in c.itemCooldowns) c.itemCooldowns[id] = Math.max(0, c.itemCooldowns[id] - dt);
   tickStatuses(e, dt);
   c.gold += PASSIVE_GOLD_PER_SEC * dt;
 
   let hpRegen = e.hpRegen;
-  let manaRegen = e.manaRegen;
-  const fountain = MAP.fountains[e.team];
+  let manaRegen = e.manaRegen + (hasBlessing(e, 'azure') ? AZURE_MANA_REGEN : 0);
+  const fountain = MAP.fountains[e.team as Team];
   if (dist(e.pos, fountain) <= MAP.fountainRadius) {
     hpRegen += e.maxHp * FOUNTAIN_HEAL_PCT;
     manaRegen += e.maxMana * FOUNTAIN_HEAL_PCT;
@@ -163,7 +169,7 @@ export function updateChampion(world: World, e: Entity, dt: number): void {
   e.hp = Math.min(e.maxHp, e.hp + hpRegen * dt);
   e.mana = Math.min(e.maxMana, e.mana + manaRegen * dt);
 
-  if (dist(e.pos, MAP.fountains[otherTeam(e.team)]) <= MAP.fountainRadius) {
+  if (dist(e.pos, MAP.fountains[otherTeam(e.team as Team)]) <= MAP.fountainRadius) {
     // Source id 0 is "the environment" — no entity gets credit.
     applyDamage(world, 0, e, FOUNTAIN_DPS * dt, 'true');
     if (e.dead) return;
@@ -238,7 +244,7 @@ function respawn(world: World, e: Entity): void {
   e.dead = false;
   e.hp = e.maxHp;
   e.mana = e.maxMana;
-  e.pos = { ...MAP.fountains[e.team] };
+  e.pos = { ...MAP.fountains[e.team as Team] };
   e.prevPos = { ...e.pos };
   e.order = { type: 'idle' };
   e.targetId = null;

@@ -2,7 +2,10 @@ import type { LaneId, Team } from './map.js';
 import type { Vec2 } from './math.js';
 
 export type EntityId = number;
-export type EntityKind = 'champion' | 'minion' | 'tower' | 'nexus';
+export type EntityKind = 'champion' | 'minion' | 'tower' | 'nexus' | 'monster' | 'ward';
+/** Jungle monsters belong to neither team. */
+export type Faction = Team | 'neutral';
+export type Blessing = 'crimson' | 'azure';
 export type DamageKind = 'physical' | 'magic' | 'true';
 export type AbilitySlot = 0 | 1 | 2 | 3;
 export type MinionType = 'melee' | 'caster';
@@ -21,7 +24,11 @@ export type StatusEffect =
   | { type: 'slow'; amount: number; remaining: number }
   | { type: 'stun'; remaining: number }
   | { type: 'shield'; amount: number; remaining: number }
-  | { type: 'buff'; remaining: number; attackSpeedPct: number; moveSpeedPct: number; armor: number };
+  | { type: 'buff'; remaining: number; attackSpeedPct: number; moveSpeedPct: number; armor: number }
+  /** Jungle buff from the Crimson Sentinel or Azure Golem. */
+  | { type: 'blessing'; blessing: Blessing; remaining: number }
+  /** Invulnerable and untargetable, but can't act. */
+  | { type: 'stasis'; remaining: number };
 
 export interface AbilityState {
   cooldown: number;
@@ -48,6 +55,8 @@ export interface ChampionState {
   deaths: number;
   abilities: AbilityState[];
   items: (ItemId | null)[];
+  /** Item active cooldowns, keyed by item id (two copies share one cooldown). */
+  itemCooldowns: Record<ItemId, number>;
   respawnTimer: number;
   /** Seconds left in the recall channel, or 0 if not recalling. */
   recallTimer: number;
@@ -68,6 +77,20 @@ export interface MinionState {
   chaseOrigin: Vec2 | null;
 }
 
+export interface MonsterState {
+  campId: string;
+  type: string;
+  home: Vec2;
+  /** Walking back to camp after being pulled too far; heals to full on arrival. */
+  leashing: boolean;
+  chaseTime: number;
+}
+
+export interface WardState {
+  ownerId: EntityId;
+  expiresAt: number;
+}
+
 export interface StructureState {
   lane?: LaneId;
   tier?: number;
@@ -76,7 +99,7 @@ export interface StructureState {
 export interface Entity {
   id: EntityId;
   kind: EntityKind;
-  team: Team;
+  team: Faction;
   pos: Vec2;
   /** Position at the start of the current tick, for render interpolation. */
   prevPos: Vec2;
@@ -113,10 +136,16 @@ export interface Entity {
   repathTimer: number;
   statuses: StatusEffect[];
   lastDamagedAt: number;
+  /** Visible to enemies (even in brush) until this time — set by attacking or casting. */
+  revealedUntil: number;
+  /** How far this unit grants vision to its team. */
+  sightRange: number;
 
   champion?: ChampionState;
   minion?: MinionState;
   structure?: StructureState;
+  monster?: MonsterState;
+  ward?: WardState;
 }
 
 export type ProjectileVisual = 'attack' | 'caster' | 'tower' | 'ability';
@@ -173,6 +202,7 @@ export type Command =
   | { type: 'attackMove'; unitId: EntityId; target: Vec2 }
   | { type: 'stop'; unitId: EntityId }
   | { type: 'cast'; unitId: EntityId; slot: AbilitySlot; target: Vec2 }
+  | { type: 'useItem'; unitId: EntityId; slot: number; target: Vec2 }
   | { type: 'recall'; unitId: EntityId }
   | { type: 'buy'; unitId: EntityId; itemId: ItemId }
   | { type: 'sell'; unitId: EntityId; slot: number };
@@ -194,6 +224,10 @@ export type GameEvent =
   | { type: 'recallStart' | 'recallCancel' | 'recallDone'; id: EntityId }
   | { type: 'itemBought'; id: EntityId; itemId: ItemId }
   | { type: 'itemSold'; id: EntityId; itemId: ItemId; refund: number }
+  | { type: 'itemUsed'; id: EntityId; itemId: ItemId; pos: Vec2 }
+  | { type: 'wardPlaced'; id: EntityId; ownerId: EntityId; pos: Vec2 }
+  | { type: 'monsterSlain'; campId: string; monsterType: string; killerId: EntityId | null; team: Team | null; epic: boolean }
+  | { type: 'blessingGained'; id: EntityId; blessing: Blessing }
   | { type: 'structureDestroyed'; id: EntityId; kind: EntityKind; team: Team }
   | { type: 'waveSpawned' }
   | { type: 'gameOver'; winner: Team };

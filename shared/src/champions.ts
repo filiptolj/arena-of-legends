@@ -23,7 +23,22 @@ export type AbilityEffect =
   /** Delayed area at the cursor (or on the caster with `atSelf`). */
   | { type: 'zone'; radius: number; delay: number; atSelf?: boolean; status?: OnHitStatus }
   /** Temporary self buff. */
-  | { type: 'buff'; duration: number; attackSpeedPct?: number; moveSpeedPct?: number; armor?: number; shield?: DamageSpec };
+  | {
+      type: 'buff';
+      duration: number;
+      attackSpeedPct?: number;
+      moveSpeedPct?: number;
+      armor?: number;
+      shield?: DamageSpec;
+      /** Shield bonus as a fraction of max health. */
+      shieldPctMaxHp?: number;
+      /** Instant heal as a fraction of max health. */
+      healPctMaxHp?: number;
+    }
+  /** Place a vision ward at the cursor. */
+  | { type: 'ward' }
+  /** Become invulnerable and untargetable, unable to act. */
+  | { type: 'stasis'; duration: number };
 
 export interface AbilityDef {
   id: string;
@@ -105,7 +120,7 @@ export const CHAMPIONS: Record<string, ChampionDef> = {
         effect: { type: 'zone', radius: 5, delay: 1 },
       },
     ],
-    build: ['boots', 'arcaneCodex', 'archmageStaff', 'voidScepter', 'spellguardMail'],
+    build: ['boots', 'wardTotem', 'arcaneCodex', 'archmageStaff', 'voidScepter', 'spellguardMail'],
   },
 
   ranger: {
@@ -148,7 +163,7 @@ export const CHAMPIONS: Record<string, ChampionDef> = {
         effect: { type: 'zone', radius: 6, delay: 0.6, status: { type: 'slow', amount: 0.3, duration: 1.5 } },
       },
     ],
-    build: ['boots', 'stormBow', 'crimsonEdge', 'swiftstrideBoots', 'titanPlate'],
+    build: ['boots', 'wardTotem', 'stormBow', 'crimsonEdge', 'swiftstrideBoots', 'titanPlate'],
   },
 
   warden: {
@@ -192,7 +207,7 @@ export const CHAMPIONS: Record<string, ChampionDef> = {
         effect: { type: 'zone', radius: 7, delay: 0.4, atSelf: true, status: { type: 'stun', duration: 1.5 } },
       },
     ],
-    build: ['boots', 'titanPlate', 'warlordsCleaver', 'spellguardMail', 'swiftstrideBoots'],
+    build: ['boots', 'wardTotem', 'titanPlate', 'warlordsCleaver', 'spellguardMail', 'swiftstrideBoots'],
   },
 
   shade: {
@@ -236,7 +251,7 @@ export const CHAMPIONS: Record<string, ChampionDef> = {
         effect: { type: 'zone', radius: 3, delay: 0.25 },
       },
     ],
-    build: ['boots', 'warlordsCleaver', 'crimsonEdge', 'swiftstrideBoots', 'titanPlate'],
+    build: ['boots', 'wardTotem', 'warlordsCleaver', 'crimsonEdge', 'swiftstrideBoots', 'titanPlate'],
   },
 };
 

@@ -34,7 +34,8 @@ export class Effects {
 
   constructor(private readonly scene: THREE.Scene) {}
 
-  sync(world: World, alpha: number): void {
+  /** `visible` is the set of entity ids the player's team can see. */
+  sync(world: World, alpha: number, visible: Set<number>): void {
     const seen = new Set<number>();
     for (const p of world.projectiles) {
       seen.add(p.id);
@@ -94,7 +95,7 @@ export class Effects {
     // Dash trails.
     for (const c of world.entities.values()) {
       const dash = c.champion?.dash;
-      if (!dash || c.dead) continue;
+      if (!dash || c.dead || !visible.has(c.id)) continue;
       const pos = { x: lerp(c.prevPos.x, c.pos.x, alpha), y: lerp(c.prevPos.y, c.pos.y, alpha) };
       this.burst(pos, 1.2, abilityColor(dash.abilityId), 2.2, 0.3);
     }
@@ -243,6 +244,18 @@ export class Effects {
         }
         break;
       }
+      case 'wardPlaced':
+        this.ring(ev.pos, 1.5, 0xffe9a8, 0.5);
+        break;
+      case 'monsterSlain':
+        if (ev.epic) {
+          const camp = world.camps.find((c) => c.def.id === ev.campId);
+          if (camp) {
+            this.burst(camp.def.pos, 4, 0xff7a30, 18, 1);
+            this.sparks(camp.def.pos, 3, 0xffb050, 40, 16, 1.2);
+          }
+        }
+        break;
       case 'respawn': {
         const e = world.get(ev.id);
         if (e) this.burst(e.pos, 2, 0xffffff, 6, 0.6);

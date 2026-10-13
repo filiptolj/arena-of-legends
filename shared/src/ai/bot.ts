@@ -1,10 +1,12 @@
 import { CHAMPIONS } from '../champions.js';
 import { DT } from '../constants.js';
 import { nextPurchase, purchasePrice } from '../items.js';
-import { MAP, laneWaypoints } from '../map.js';
+import { MAP, type Team, laneWaypoints } from '../map.js';
 import { type Vec2, dist, moveToward } from '../math.js';
-import { abilityDamage, abilityOf, castBlocker } from '../systems/abilities.js';
+import { ITEMS } from '../items.js';
+import { abilityDamage, abilityOf, castBlocker, itemUseBlocker } from '../systems/abilities.js';
 import { canTarget } from '../systems/combat.js';
+import { isVisibleTo } from '../systems/vision.js';
 import type { AbilitySlot, Entity, EntityId } from '../types.js';
 import type { World } from '../world.js';
 
@@ -42,7 +44,7 @@ export class BotController {
     const c = me.champion;
     if (c.recallTimer > 0 || c.dash) return;
 
-    const fountain = MAP.fountains[me.team];
+    const fountain = MAP.fountains[me.team as Team];
     const hpPct = me.hp / me.maxHp;
     if (dist(me.pos, fountain) <= MAP.fountainRadius) {
       this.retreating = false;
@@ -61,6 +63,7 @@ export class BotController {
         world.issue({ type: 'recall', unitId: me.id });
       } else {
         if (hpPct < 0.25) this.escape(world, me, fountain);
+        if (hpPct < 0.2) this.useItem(world, me, (fx) => fx.type === 'stasis' || fx.type === 'dash', fountain);
         this.moveTo(world, me, fountain);
       }
       return;
@@ -71,6 +74,7 @@ export class BotController {
       return;
     }
 
+    this.placeWard(world, me);
     if (enemyChamp && this.fight(world, me, enemyChamp)) return;
     if (this.farm(world, me)) return;
     if (this.siege(world, me)) return;
@@ -135,6 +139,10 @@ export class BotController {
       return false;
     }
 
+    if (d <= me.attackRange + 3) {
+      // Combat item actives: heals, shields and attack speed.
+      this.useItem(world, me, (fx) => fx.type === 'buff' && (!!fx.attackSpeedPct || (myPct < 0.6 && !!(fx.shield || fx.healPctMaxHp))), me.pos);
+    }
     for (const slot of SLOTS) {
       if (castBlocker(me, slot)) continue;
       // Save the ultimate for when it matters.
@@ -174,6 +182,36 @@ export class BotController {
     }
   }
 
+  /** Uses the first ready item active whose effect matches. */
+  private useItem(world: World, me: Entity, want: (fx: NonNullable<(typeof ITEMS)[string]['active']>['effect']) => boolean, target: Vec2): void {
+    const items = me.champion!.items;
+    for (let slot = 0; slot < items.length; slot++) {
+      const id = items[slot];
+      const active = id ? ITEMS[id].active : undefined;
+      if (!active || itemUseBlocker(me, slot) || !want(active.effect)) continue;
+      world.issue({ type: 'useItem', unitId: me.id, slot, target: { ...target } });
+      return;
+    }
+  }
+
+  /** Drops a ward in the nearest brush if none of ours is watching it. */
+  private placeWard(world: World, me: Entity): void {
+    const slot = me.champion!.items.indexOf('wardTotem');
+    if (slot < 0 || itemUseBlocker(me, slot)) return;
+    const range = ITEMS.wardTotem.active!.range;
+    for (const poly of MAP.brushes) {
+      const center = {
+        x: poly.reduce((a, p) => a + p.x, 0) / poly.length,
+        y: poly.reduce((a, p) => a + p.y, 0) / poly.length,
+      };
+      if (dist(center, me.pos) > range) continue;
+      const watched = world.unitsNear(center, 8, (o) => o.kind === 'ward' && o.team === me.team).length > 0;
+      if (watched) continue;
+      world.issue({ type: 'useItem', unitId: me.id, slot, target: center });
+      return;
+    }
+  }
+
   private farm(world: World, me: Entity): boolean {
     const minions = world.unitsNear(
       me.pos,
@@ -209,8 +247,8 @@ export class BotController {
   /** Where to stand: just behind our frontmost lane minion, or behind our outermost tower. */
   private holdPosition(world: World, me: Entity, backOff = 3): Vec2 {
     const lane = me.champion!.lane;
-    const enemyNexus = laneWaypoints(me.team, lane).at(-1)!;
-    const ownNexus = laneWaypoints(me.team, lane)[0];
+    const enemyNexus = laneWaypoints(me.team as Team, lane).at(-1)!;
+    const ownNexus = laneWaypoints(me.team as Team, lane)[0];
     let front: Entity | null = null;
     for (const o of world.entities.values()) {
       if (o.kind !== 'minion' || o.dead || o.team !== me.team || o.minion?.lane !== lane) continue;
@@ -262,7 +300,7 @@ export class BotController {
   private nearestEnemyChampion(world: World, me: Entity, range: number): Entity | null {
     let best: Entity | null = null;
     for (const o of world.champions()) {
-      if (o.dead || o.team === me.team) continue;
+      if (o.dead || o.team === me.team || !isVisibleTo(world, me.team, o)) continue;
       const d = dist(o.pos, me.pos);
       if (d <= range && (!best || d < dist(best.pos, me.pos))) best = o;
     }

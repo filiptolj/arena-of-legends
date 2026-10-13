@@ -34,6 +34,44 @@ for (const r of quadrantRocks) {
   rocks.push(r, diag, r.map(reflect), diag.map(reflect));
 }
 
+export type CampType = 'wolves' | 'raptors' | 'golem' | 'sentinel' | 'drake';
+
+export interface CampDef {
+  id: string;
+  type: CampType;
+  pos: Vec2;
+}
+
+// Blue-side camps; the red side is the point reflection. The drake sits in the bottom river.
+const blueCamps: CampDef[] = [
+  { id: 'blue-golem', type: 'golem', pos: vec(60, 80) },
+  { id: 'blue-wolves', type: 'wolves', pos: vec(42, 138) },
+  { id: 'blue-sentinel', type: 'sentinel', pos: vec(120, 140) },
+  { id: 'blue-raptors', type: 'raptors', pos: vec(62, 158) },
+];
+const camps: CampDef[] = [
+  ...blueCamps,
+  ...blueCamps.map((c) => ({ ...c, id: c.id.replace('blue', 'red'), pos: reflect(c.pos) })),
+  { id: 'drake', type: 'drake', pos: vec(138, 138) },
+];
+
+const rect = (cx: number, cy: number, w: number, h: number): Vec2[] => [
+  vec(cx - w / 2, cy - h / 2),
+  vec(cx + w / 2, cy - h / 2),
+  vec(cx + w / 2, cy + h / 2),
+  vec(cx - w / 2, cy + h / 2),
+];
+
+// Brush beside the top and mid lanes in one quadrant (mirrored to all four), plus two river patches.
+const quadrantBrush: Vec2[][] = [rect(30.5, 87, 5, 10), rect(70, 116, 6, 6)];
+const brushes: Vec2[][] = [];
+for (const b of quadrantBrush) {
+  const diag = b.map(mirrorDiag);
+  brushes.push(b, diag, b.map(reflect), diag.map(reflect));
+}
+const riverBrush = rect(78, 78, 6, 6);
+brushes.push(riverBrush, riverBrush.map(reflect));
+
 /** Lane paths from the blue nexus to the red nexus. */
 const lanePaths: Record<LaneId, Vec2[]> = {
   top: [vec(28, 172), vec(20, 155), vec(20, 40), vec(28, 28), vec(40, 20), vec(155, 20), vec(172, 28)],
@@ -71,6 +109,8 @@ export const MAP = {
   structures: [...blueStructures, ...redStructures],
   fountains: { blue: vec(14, 186), red: vec(186, 14) } as Record<Team, Vec2>,
   fountainRadius: 12,
+  camps,
+  brushes,
 };
 
 /** Waypoints a team's minions follow, starting at their own nexus. */

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { MAP, type Vec2, pointInPolygon } from '@lol/shared';
+import type { FogOfWar } from './fog';
 import { mulberry32 } from './util';
 
 const TEX_SIZE = 2048;
@@ -76,6 +77,15 @@ export function paintGroundCanvas(size = TEX_SIZE): HTMLCanvasElement {
     g.fill();
   }
 
+  // Brush footprints.
+  g.fillStyle = '#3c6a2a';
+  for (const poly of MAP.brushes) {
+    g.beginPath();
+    poly.forEach((p, i) => (i === 0 ? g.moveTo(p.x * k, p.y * k) : g.lineTo(p.x * k, p.y * k)));
+    g.closePath();
+    g.fill();
+  }
+
   // Rock footprints.
   g.fillStyle = '#1d2a1a';
   for (const poly of MAP.rocks) {
@@ -118,7 +128,14 @@ function scatterInPolygon(poly: Vec2[], count: number, rand: () => number): Vec2
   return out;
 }
 
-export function buildMap(scene: THREE.Scene): void {
+export interface MapView {
+  /** One grass mesh per brush (same order as MAP.brushes), faded when the player stands inside. */
+  brushes: THREE.InstancedMesh[];
+}
+
+export function buildMap(scene: THREE.Scene, fog: FogOfWar): MapView {
+  const root = new THREE.Group();
+  scene.add(root);
   const groundTex = new THREE.CanvasTexture(paintGroundCanvas());
   groundTex.colorSpace = THREE.SRGBColorSpace;
   groundTex.anisotropy = 8;
@@ -128,7 +145,7 @@ export function buildMap(scene: THREE.Scene): void {
   );
   ground.position.set(MAP.size / 2, 0, MAP.size / 2);
   ground.receiveShadow = true;
-  scene.add(ground);
+  root.add(ground);
 
   // Surroundings beyond the playable area.
   const outer = new THREE.Mesh(
@@ -136,14 +153,14 @@ export function buildMap(scene: THREE.Scene): void {
     new THREE.MeshStandardMaterial({ color: 0x1a2a17, roughness: 1 }),
   );
   outer.position.set(MAP.size / 2, -0.05, MAP.size / 2);
-  scene.add(outer);
+  root.add(outer);
 
   const rockMat = new THREE.MeshStandardMaterial({ color: 0x4a5244, roughness: 0.9, flatShading: true });
   const rand = mulberry32(42);
   const treePositions: Vec2[] = [];
 
   for (const poly of MAP.rocks) {
-    scene.add(buildRock(poly, 2.5, rockMat));
+    root.add(buildRock(poly, 2.5, rockMat));
     treePositions.push(...scatterInPolygon(poly, 14, rand));
   }
 
@@ -157,7 +174,7 @@ export function buildMap(scene: THREE.Scene): void {
     [{ x: s - b, y: b }, { x: s + 10, y: b }, { x: s + 10, y: s - b }, { x: s - b, y: s - b }],
   ];
   for (const poly of borders) {
-    scene.add(buildRock(poly, 3, rockMat));
+    root.add(buildRock(poly, 3, rockMat));
     treePositions.push(...scatterInPolygon(poly, 120, rand).filter((p) => p.x > -4 && p.y > -4 && p.x < s + 4 && p.y < s + 4));
   }
 
@@ -187,7 +204,7 @@ export function buildMap(scene: THREE.Scene): void {
   });
   for (const im of [trunks, leaves, leaves2]) {
     im.castShadow = true;
-    scene.add(im);
+    root.add(im);
   }
 
   // Fountain platforms.
@@ -199,12 +216,42 @@ export function buildMap(scene: THREE.Scene): void {
     );
     plat.position.set(f.x, 0.3, f.y);
     plat.receiveShadow = true;
-    scene.add(plat);
+    root.add(plat);
     const pool = new THREE.Mesh(
       new THREE.CylinderGeometry(3.6, 3.6, 0.1, 24),
       new THREE.MeshStandardMaterial({ color: col, emissive: col, emissiveIntensity: 0.6, transparent: true, opacity: 0.85 }),
     );
     pool.position.set(f.x, 0.65, f.y);
-    scene.add(pool);
+    root.add(pool);
   }
+
+  const brushes = buildBrushes(root);
+  fog.applyTree(root);
+  return { brushes };
+}
+
+/** Tall grass: instanced blades scattered inside each brush polygon. */
+function buildBrushes(root: THREE.Group): THREE.InstancedMesh[] {
+  const rand = mulberry32(99);
+  const blade = new THREE.ConeGeometry(0.22, 1.9, 4).translate(0, 0.95, 0);
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const color = new THREE.Color();
+  return MAP.brushes.map((poly) => {
+    const spots = scatterInPolygon(poly, 140, rand);
+    const mat = new THREE.MeshStandardMaterial({ color: 0x4f8f3a, flatShading: true, transparent: true, opacity: 1 });
+    const mesh = new THREE.InstancedMesh(blade, mat, spots.length);
+    spots.forEach((p, i) => {
+      const tilt = new THREE.Euler((rand() - 0.5) * 0.5, rand() * Math.PI * 2, (rand() - 0.5) * 0.5);
+      q.setFromEuler(tilt);
+      const sc = 0.7 + rand() * 0.6;
+      m.compose(new THREE.Vector3(p.x, 0, p.y), q, new THREE.Vector3(sc, sc, sc));
+      mesh.setMatrixAt(i, m);
+      color.setHSL(0.26 + rand() * 0.06, 0.55, 0.28 + rand() * 0.12);
+      mesh.setColorAt(i, color);
+    });
+    mesh.castShadow = true;
+    root.add(mesh);
+    return mesh;
+  });
 }

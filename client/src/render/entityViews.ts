@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { type Entity, type EntityId, type Team, type World, dist, lerp } from '@lol/shared';
+import { type Entity, type EntityId, type Faction, type Team, type World, dist, lerp } from '@lol/shared';
+import type { FogOfWar } from './fog';
 import { TEAM_COLOR, disposeObject, makeGlow, makeGroundRing } from './util';
 
 interface ViewParts {
@@ -27,17 +28,27 @@ export class EntityView {
   private deathTime = 0;
   private recallFx: THREE.Group | null = null;
   private rangeRing: THREE.Mesh | null = null;
-  private statusFx: { shield: THREE.Mesh; aura: THREE.Mesh; stun: THREE.Group; slow: THREE.Mesh } | null = null;
+  private statusFx: {
+    shield: THREE.Mesh;
+    aura: THREE.Mesh;
+    stun: THREE.Group;
+    slow: THREE.Mesh;
+    crimson: THREE.Mesh;
+    azure: THREE.Mesh;
+    stasis: THREE.Mesh;
+  } | null = null;
   /** Interpolated ground position for overlays. */
   readonly renderPos = new THREE.Vector3();
   dying = false;
+  /** Whether the player's team can currently see this entity. */
+  seen = true;
   /** Set once the death animation finishes and the view can be removed. */
   done = false;
 
   constructor(
     readonly id: EntityId,
     readonly kind: Entity['kind'],
-    readonly team: Team,
+    readonly team: Faction,
     parts: ViewParts,
   ) {
     this.root = parts.root;
@@ -67,7 +78,7 @@ export class EntityView {
     this.root.position.set(x, 0, z);
 
     const moving = dist(e.prevPos, e.pos) > 1e-3;
-    if (e.kind === 'champion' || e.kind === 'minion') {
+    if (e.kind === 'champion' || e.kind === 'minion' || e.kind === 'monster') {
       // Smoothly turn toward facing.
       let diff = e.facing - this.body.rotation.y;
       diff = Math.atan2(Math.sin(diff), Math.cos(diff));
@@ -100,7 +111,7 @@ export class EntityView {
     }
 
     this.updateRecall(e, time);
-    if (e.kind === 'champion' || e.kind === 'minion') this.updateStatusFx(e, time);
+    if (e.kind === 'champion' || e.kind === 'minion' || e.kind === 'monster') this.updateStatusFx(e, time);
 
     if (e.kind === 'champion') {
       // Champions fall over when they die and pop back on respawn.
@@ -162,8 +173,16 @@ export class EntityView {
         stun.add(star);
       }
       const slow = makeGroundRing(r * 1.1, r * 1.35, 0x6ab7ff, 0.7);
-      this.statusFx = { shield, aura, stun, slow };
-      this.root.add(shield, aura, stun, slow);
+      const crimson = makeGroundRing(r * 2.0, r * 2.3, 0xff3b3b, 0.7);
+      const azure = makeGroundRing(r * 2.4, r * 2.7, 0x3bb8ff, 0.7);
+      const stasis = new THREE.Mesh(
+        new THREE.SphereGeometry(r * 1.5, 16, 12),
+        new THREE.MeshStandardMaterial({ color: 0xffd36b, metalness: 1, roughness: 0.15, transparent: true, opacity: 0.85 }),
+      );
+      stasis.position.y = this.height * 0.45;
+      stasis.scale.y = this.height / (r * 2.6);
+      this.statusFx = { shield, aura, stun, slow, crimson, azure, stasis };
+      this.root.add(shield, aura, stun, slow, crimson, azure, stasis);
     }
     const fx = this.statusFx;
     const has = (t: string) => !e.dead && e.statuses.some((s) => s.type === t);
@@ -171,6 +190,12 @@ export class EntityView {
     fx.aura.visible = has('buff');
     fx.stun.visible = has('stun');
     fx.slow.visible = has('slow');
+    fx.stasis.visible = has('stasis');
+    const blessed = (b: string) => !e.dead && e.statuses.some((s) => s.type === 'blessing' && s.blessing === b);
+    fx.crimson.visible = blessed('crimson');
+    fx.azure.visible = blessed('azure');
+    fx.crimson.rotation.y = -time;
+    fx.azure.scale.setScalar(1 + Math.sin(time * 3) * 0.05);
     fx.stun.rotation.y = time * 5;
     fx.aura.rotation.y = time;
     (fx.shield.material as THREE.MeshBasicMaterial).opacity = 0.18 + Math.sin(time * 6) * 0.05;
@@ -193,7 +218,7 @@ export class EntityView {
   animateDeath(dt: number): void {
     this.deathTime += dt;
     const t = this.deathTime;
-    if (this.kind === 'minion') {
+    if (this.kind === 'minion' || this.kind === 'monster' || this.kind === 'ward') {
       this.root.position.y = -t * 1.5;
       this.body.rotation.z = Math.min(1.4, t * 5);
       if (t > 0.8) this.done = true;
@@ -424,20 +449,209 @@ function nexusModel(team: Team): ViewParts {
   return { root, body, height: 11, spinner: crystal };
 }
 
+// ---------------------------------------------------------------------------
+// Jungle monsters and wards.
+
+function wolfModel(body: THREE.Group, scale: number, color: number): void {
+  const fur = std(color);
+  body.add(mesh(new THREE.BoxGeometry(0.8, 0.7, 1.6), fur, 0.75));
+  const head = mesh(new THREE.BoxGeometry(0.6, 0.55, 0.7), fur, 1.15);
+  head.position.z = 0.95;
+  body.add(head);
+  for (const side of [-1, 1]) {
+    const ear = mesh(new THREE.ConeGeometry(0.12, 0.35, 4), fur, 1.55);
+    ear.position.set(side * 0.18, 1.55, 0.85);
+    body.add(ear);
+    const eye = mesh(new THREE.SphereGeometry(0.06, 6, 4), std(0xffe066, { emissive: 0xffe066, emissiveIntensity: 1.5 }), 1.25);
+    eye.position.set(side * 0.16, 1.25, 1.3);
+    body.add(eye);
+    for (const z of [-0.55, 0.55]) {
+      const leg = mesh(new THREE.BoxGeometry(0.18, 0.5, 0.18), fur, 0.25);
+      leg.position.set(side * 0.28, 0.25, z);
+      body.add(leg);
+    }
+  }
+  const tail = mesh(new THREE.ConeGeometry(0.12, 0.8, 5).rotateX(-Math.PI / 2.5), fur, 0.95);
+  tail.position.z = -1.0;
+  body.add(tail);
+  body.scale.setScalar(scale);
+}
+
+function raptorModel(body: THREE.Group, scale: number): void {
+  const skin = std(0xc8552a);
+  const torso = mesh(new THREE.SphereGeometry(0.5, 10, 8), skin, 1.0);
+  torso.scale.set(0.8, 0.8, 1.3);
+  body.add(torso);
+  const neck = mesh(new THREE.CylinderGeometry(0.12, 0.2, 0.8, 6), skin, 1.5);
+  neck.position.z = 0.45;
+  neck.rotation.x = 0.6;
+  body.add(neck);
+  const head = mesh(new THREE.ConeGeometry(0.22, 0.7, 6).rotateX(Math.PI / 2), std(0xe8a050), 1.85);
+  head.position.z = 0.8;
+  body.add(head);
+  for (const side of [-1, 1]) {
+    const leg = mesh(new THREE.CylinderGeometry(0.07, 0.05, 0.8, 5), std(0x7a3418), 0.4);
+    leg.position.x = side * 0.22;
+    body.add(leg);
+  }
+  const tail = mesh(new THREE.ConeGeometry(0.2, 1.0, 5).rotateX(-Math.PI / 2), skin, 1.0);
+  tail.position.z = -0.9;
+  body.add(tail);
+  body.scale.setScalar(scale);
+}
+
+function golemModel(body: THREE.Group): THREE.Object3D {
+  const stone = std(0x6a7280, { roughness: 0.9 });
+  const rune = std(0x3bb8ff, { emissive: 0x3bb8ff, emissiveIntensity: 1.4 });
+  body.add(mesh(new THREE.BoxGeometry(2.0, 1.8, 1.4), stone, 2.0));
+  body.add(mesh(new THREE.BoxGeometry(1.0, 0.9, 0.9), stone, 3.3));
+  const core = new THREE.Group();
+  core.position.set(0, 2.1, 0.72);
+  core.add(mesh(new THREE.OctahedronGeometry(0.35), rune), makeGlow(0x3bb8ff, 2.5, 0.8));
+  body.add(core);
+  for (const side of [-1, 1]) {
+    const arm = mesh(new THREE.BoxGeometry(0.6, 1.8, 0.6), stone, 1.6);
+    arm.position.x = side * 1.35;
+    body.add(arm);
+    const leg = mesh(new THREE.BoxGeometry(0.7, 1.1, 0.7), stone, 0.55);
+    leg.position.x = side * 0.5;
+    body.add(leg);
+  }
+  return core;
+}
+
+function sentinelModel(body: THREE.Group): THREE.Object3D {
+  const shell = std(0x5a1414, { roughness: 0.4 });
+  const glow = std(0xff3b3b, { emissive: 0xff3b3b, emissiveIntensity: 1.3 });
+  const torso = mesh(new THREE.IcosahedronGeometry(1.2, 0), shell, 1.6);
+  torso.scale.set(1, 0.9, 1.3);
+  body.add(torso);
+  for (let i = 0; i < 6; i++) {
+    const spike = mesh(new THREE.ConeGeometry(0.25, 1.3, 5), glow, 2.6);
+    spike.position.set((i % 2 ? 0.4 : -0.4), 2.5, -0.9 + i * 0.35);
+    spike.rotation.x = -0.3;
+    body.add(spike);
+  }
+  const head = mesh(new THREE.ConeGeometry(0.6, 1.2, 6).rotateX(Math.PI / 2), shell, 1.9);
+  head.position.z = 1.6;
+  body.add(head);
+  const heart = new THREE.Group();
+  heart.position.set(0, 1.6, 1.0);
+  heart.add(makeGlow(0xff3b3b, 3, 0.8));
+  body.add(heart);
+  return heart;
+}
+
+function drakeModel(body: THREE.Group): THREE.Object3D {
+  const scales = std(0x7a2e10, { roughness: 0.5 });
+  const belly = std(0xd9822b);
+  const torso = mesh(new THREE.SphereGeometry(1.4, 14, 10), scales, 2.2);
+  torso.scale.set(1, 0.85, 1.6);
+  body.add(torso);
+  const neck = mesh(new THREE.CylinderGeometry(0.35, 0.6, 1.8, 8), scales, 3.2);
+  neck.position.z = 1.9;
+  neck.rotation.x = 0.8;
+  body.add(neck);
+  const head = mesh(new THREE.BoxGeometry(0.9, 0.7, 1.4), scales, 4.0);
+  head.position.z = 2.8;
+  body.add(head);
+  for (const side of [-1, 1]) {
+    const horn = mesh(new THREE.ConeGeometry(0.12, 0.8, 5), belly, 4.5);
+    horn.position.set(side * 0.3, 4.5, 2.5);
+    horn.rotation.x = -0.6;
+    body.add(horn);
+    const wingShape = new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(3.4, 1.2), new THREE.Vector2(3.0, -0.6), new THREE.Vector2(1.6, -1.4)]);
+    const wing = mesh(new THREE.ShapeGeometry(wingShape), std(0xa8421a, { side: THREE.DoubleSide }), 3.0);
+    wing.rotation.set(-Math.PI / 2 + 0.4, 0, side > 0 ? 0 : Math.PI);
+    wing.position.x = side * 0.8;
+    body.add(wing);
+  }
+  const tail = mesh(new THREE.ConeGeometry(0.5, 2.6, 6).rotateX(-Math.PI / 2), scales, 1.9);
+  tail.position.z = -2.6;
+  body.add(tail);
+  const breath = new THREE.Group();
+  breath.position.set(0, 4.0, 3.6);
+  breath.add(makeGlow(0xff7a30, 2.2, 0.9));
+  body.add(breath);
+  return breath;
+}
+
+function monsterModel(type: string): ViewParts {
+  const root = new THREE.Group();
+  const body = new THREE.Group();
+  root.add(body);
+  let pulse: THREE.Object3D | undefined;
+  let height = 2;
+  switch (type) {
+    case 'alphaWolf':
+      wolfModel(body, 1.3, 0x55585f);
+      height = 2.4;
+      break;
+    case 'wolf':
+      wolfModel(body, 0.9, 0x7a7d84);
+      height = 1.8;
+      break;
+    case 'raptorMatriarch':
+      raptorModel(body, 1.3);
+      height = 2.8;
+      break;
+    case 'raptor':
+      raptorModel(body, 0.8);
+      height = 1.9;
+      break;
+    case 'golem':
+      pulse = golemModel(body);
+      height = 4;
+      break;
+    case 'sentinel':
+      pulse = sentinelModel(body);
+      height = 3.6;
+      break;
+    case 'drake':
+      pulse = drakeModel(body);
+      height = 5.2;
+      break;
+  }
+  root.add(makeGroundRing(0.9, 1.1, 0xe0a030, 0.35));
+  return { root, body, height, pulse };
+}
+
+function wardModel(team: Team): ViewParts {
+  const root = new THREE.Group();
+  const body = new THREE.Group();
+  root.add(body);
+  const tc = TEAM_COLOR[team];
+  body.add(mesh(new THREE.CylinderGeometry(0.08, 0.12, 1.2, 6), std(0x5a3d22), 0.6));
+  const eye = new THREE.Group();
+  eye.userData.baseY = 1.45;
+  eye.position.y = 1.45;
+  eye.add(mesh(new THREE.OctahedronGeometry(0.22), std(tc, { emissive: tc, emissiveIntensity: 1.5 })), makeGlow(tc, 1.6, 0.8));
+  body.add(eye);
+  root.add(makeGroundRing(0.5, 0.65, tc, 0.6));
+  return { root, body, height: 1.8, spinner: eye };
+}
+
 export function createView(e: Entity, isPlayer: boolean): EntityView {
   let parts: ViewParts;
+  const team = e.team as Team;
   switch (e.kind) {
     case 'champion':
-      parts = championModel(e.champion?.defId ?? 'arcanist', e.team, isPlayer);
+      parts = championModel(e.champion?.defId ?? 'arcanist', team, isPlayer);
       break;
     case 'minion':
-      parts = minionModel(e.team, e.minion?.type ?? 'melee');
+      parts = minionModel(team, e.minion?.type ?? 'melee');
       break;
     case 'tower':
-      parts = towerModel(e.team);
+      parts = towerModel(team);
       break;
     case 'nexus':
-      parts = nexusModel(e.team);
+      parts = nexusModel(team);
+      break;
+    case 'monster':
+      parts = monsterModel(e.monster?.type ?? 'wolf');
+      break;
+    case 'ward':
+      parts = wardModel(team);
       break;
   }
   parts.body.rotation.y = e.facing;
@@ -451,6 +665,8 @@ export class EntityViewManager {
   constructor(
     private readonly scene: THREE.Scene,
     private readonly playerId: EntityId,
+    private readonly playerTeam: Team,
+    private readonly fog: FogOfWar,
   ) {}
 
   get(id: EntityId): EntityView | undefined {
@@ -462,10 +678,16 @@ export class EntityViewManager {
       let view = this.views.get(e.id);
       if (!view) {
         view = createView(e, e.id === this.playerId);
+        // Structures sit in the terrain, so they darken in the fog like it does.
+        if (e.kind === 'tower' || e.kind === 'nexus') this.fog.applyTree(view.root);
         this.views.set(e.id, view);
         this.scene.add(view.root);
       }
       view.update(e, alpha, dt, time);
+      // Hide whatever the player's team can't see (champions also hide themselves while dead).
+      view.seen = world.vision[this.playerTeam].has(e.id);
+      if (e.kind !== 'champion') view.root.visible = view.seen;
+      else if (!view.seen) view.root.visible = false;
     }
     for (const [id, view] of this.views) {
       if (world.entities.has(id)) continue;

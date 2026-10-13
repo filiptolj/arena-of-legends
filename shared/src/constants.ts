@@ -69,3 +69,93 @@ export const PROJECTILE_SPEED = {
   caster: 20,
   tower: 30,
 } as const;
+
+// ---------------------------------------------------------------------------
+// Vision
+
+export const SIGHT_RANGE: Record<'champion' | 'minion' | 'tower' | 'nexus' | 'monster' | 'ward', number> = {
+  champion: 14,
+  minion: 10,
+  tower: 15,
+  nexus: 18,
+  monster: 0,
+  ward: 11,
+};
+/** How long a unit stays visible after attacking or casting from brush. */
+export const REVEAL_TIME = 1.2;
+
+// ---------------------------------------------------------------------------
+// Jungle
+
+export interface MonsterDef extends UnitStats {
+  name: string;
+  gold: number;
+  xp: number;
+}
+
+const monster = (name: string, maxHp: number, attackDamage: number, radius: number, gold: number, xp: number, extra: Partial<UnitStats> = {}): MonsterDef => ({
+  name, maxHp, attackDamage, radius, gold, xp,
+  maxMana: 0, hpRegen: 0, manaRegen: 0, armor: 15, magicResist: 15,
+  attackRange: 1.4, attackSpeed: 0.7, moveSpeed: 5.5, ranged: false,
+  ...extra,
+});
+
+export const MONSTERS = {
+  alphaWolf: monster('Alpha Wolf', 1000, 32, 1.0, 55, 90),
+  wolf: monster('Wolf', 420, 14, 0.7, 20, 35),
+  raptorMatriarch: monster('Raptor Matriarch', 850, 26, 0.9, 50, 80),
+  raptor: monster('Raptor', 260, 10, 0.55, 12, 20),
+  golem: monster('Azure Golem', 2000, 48, 1.5, 100, 160, { armor: 20 }),
+  sentinel: monster('Crimson Sentinel', 2000, 55, 1.5, 100, 160, { armor: 20 }),
+  drake: monster('Ember Drake', 4500, 95, 2.4, 0, 400, { armor: 30, magicResist: 30, attackRange: 2.5 }),
+} satisfies Record<string, MonsterDef>;
+
+export type MonsterType = keyof typeof MONSTERS;
+
+export interface CampSpec {
+  /** Monster types with offsets from the camp center. */
+  monsters: { type: MonsterType; offset: { x: number; y: number } }[];
+  firstSpawn: number;
+  respawn: number;
+  epic?: boolean;
+}
+
+export const CAMP_SPECS = {
+  wolves: {
+    monsters: [
+      { type: 'alphaWolf', offset: { x: 0, y: 0 } },
+      { type: 'wolf', offset: { x: -2, y: 1.5 } },
+      { type: 'wolf', offset: { x: 2, y: 1.5 } },
+    ],
+    firstSpawn: 60,
+    respawn: 75,
+  },
+  raptors: {
+    monsters: [
+      { type: 'raptorMatriarch', offset: { x: 0, y: 0 } },
+      { type: 'raptor', offset: { x: -1.6, y: -1.2 } },
+      { type: 'raptor', offset: { x: 1.6, y: -1.2 } },
+      { type: 'raptor', offset: { x: 0, y: 1.8 } },
+    ],
+    firstSpawn: 60,
+    respawn: 75,
+  },
+  golem: { monsters: [{ type: 'golem', offset: { x: 0, y: 0 } }], firstSpawn: 75, respawn: 150 },
+  sentinel: { monsters: [{ type: 'sentinel', offset: { x: 0, y: 0 } }], firstSpawn: 75, respawn: 150 },
+  drake: { monsters: [{ type: 'drake', offset: { x: 0, y: 0 } }], firstSpawn: 180, respawn: 300, epic: true },
+} satisfies Record<string, CampSpec>;
+
+/** Monsters give up the chase beyond this distance from home. */
+export const MONSTER_LEASH = 11;
+export const MONSTER_MAX_CHASE = 8;
+
+export const BLESSING_DURATION = 90;
+/** Crimson: auto-attacks burn for bonus true damage and slow. */
+export const crimsonBurn = (level: number): number => 8 + 2 * level;
+/** Azure: extra cooldown reduction and mana regen. */
+export const AZURE_CDR = 0.15;
+export const AZURE_MANA_REGEN = 4;
+/** Drake: every living champion on the slaying team gets this much gold. */
+export const DRAKE_TEAM_GOLD = 150;
+export const WARD_LIFETIME = 90;
+export const WARD_GOLD = 30;

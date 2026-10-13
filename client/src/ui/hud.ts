@@ -56,7 +56,8 @@ export class Hud {
   private readonly gameOver = h('div', 'game-over');
   private readonly help = h('div', 'help panel');
   private readonly fps = h('div', 'fps');
-  private readonly inventory: HTMLDivElement[] = [];
+  private readonly inventory: { root: HTMLDivElement; icon: HTMLSpanElement; cd: HTMLDivElement }[] = [];
+  private readonly buffs = h('div', 'buffs');
   private hoveredSlot: AbilitySlot | null = null;
   private hoveredItem: number | null = null;
   private fpsAcc = 0;
@@ -127,11 +128,14 @@ export class Hud {
     const inv = h('div', 'inventory');
     for (let i = 0; i < 6; i++) {
       const slot = h('div', 'inv-slot');
+      const icon = h('span');
+      const cd = h('div', 'cd');
+      slot.append(icon, cd, h('span', 'key', String(i + 1)));
       slot.addEventListener('mouseenter', () => (this.hoveredItem = i));
       slot.addEventListener('mouseleave', () => (this.hoveredItem = null));
       slot.addEventListener('click', () => this.onOpenShop());
       inv.appendChild(slot);
-      this.inventory.push(slot);
+      this.inventory.push({ root: slot, icon, cd });
     }
     panel.append(portrait, this.stats, center, inv);
     this.gold.addEventListener('click', () => this.onOpenShop());
@@ -155,6 +159,7 @@ export class Hud {
         <tr><td>S</td><td>Stop</td></tr>
         <tr><td>B</td><td>Recall to base</td></tr>
         <tr><td>P</td><td>Open shop (buy in base or while dead)</td></tr>
+        <tr><td>1 – 6</td><td>Use item actives (e.g. Ward Totem)</td></tr>
         <tr><td>Y / Space</td><td>Toggle camera lock / center camera</td></tr>
         <tr><td>Mouse wheel</td><td>Zoom</td></tr>
         <tr><td>Minimap</td><td>Left: move camera · Right: move champion</td></tr>
@@ -165,7 +170,7 @@ export class Hud {
     this.help.appendChild(close);
     this.help.style.display = 'none';
 
-    root.append(score, this.gold, this.killfeed, panel, this.tooltip, this.channel, this.death, this.gameOver, this.fps, this.help);
+    root.append(score, this.gold, this.killfeed, this.buffs, panel, this.tooltip, this.channel, this.death, this.gameOver, this.fps, this.help);
   }
 
   toggleHelp(): void {
@@ -218,6 +223,17 @@ export class Hud {
         break;
       case 'waveSpawned':
         if (world.time < 10) this.announce('Minions have spawned!');
+        break;
+      case 'monsterSlain':
+        if (ev.epic) {
+          const ours = ev.team === this.playerTeam;
+          this.announce(ours ? 'Your team slew the Ember Drake!' : 'The enemy team slew the Ember Drake', !ours);
+        }
+        break;
+      case 'blessingGained':
+        if (ev.id === this.playerId) {
+          this.announce(ev.blessing === 'crimson' ? 'Crimson Blessing: attacks burn' : 'Azure Blessing: faster cooldowns');
+        }
         break;
       case 'levelUp':
         if (ev.id === this.playerId && ev.level === 6) {
@@ -283,8 +299,22 @@ export class Hud {
     c.items.forEach((id, i) => {
       const el = this.inventory[i];
       const icon = id ? ITEMS[id].icon : '';
-      if (el.textContent !== icon) el.textContent = icon;
+      if (el.icon.textContent !== icon) el.icon.textContent = icon;
+      const active = id ? ITEMS[id].active : undefined;
+      el.root.classList.toggle('has-active', !!active);
+      const cd = id && active ? (c.itemCooldowns[id] ?? 0) / active.cooldown : 0;
+      el.cd.style.setProperty('--p', `${Math.max(0, cd) * 100}%`);
     });
+
+    // Timed buffs: jungle blessings.
+    const buffHtml = me.statuses
+      .filter((st) => st.type === 'blessing')
+      .map((st) => {
+        const crimson = st.type === 'blessing' && st.blessing === 'crimson';
+        return `<div class="buff" style="border-color:${crimson ? '#ff4b4b' : '#3bb8ff'}" title="${crimson ? 'Crimson Blessing: attacks burn and slow' : 'Azure Blessing: +15% CDR, +4 mana/s'}">${crimson ? '🔥' : '💠'}<span>${Math.ceil(st.remaining)}</span></div>`;
+      })
+      .join('');
+    if (this.buffs.innerHTML !== buffHtml) this.buffs.innerHTML = buffHtml;
 
     def.abilities.forEach((a, i) => {
       const el = this.abilities[i];
@@ -315,7 +345,9 @@ export class Hud {
       this.tooltip.style.display = 'block';
     } else if (this.hoveredItem !== null && c.items[this.hoveredItem]) {
       const item = ITEMS[c.items[this.hoveredItem]!];
-      this.tooltip.innerHTML = `<h4>${item.icon} ${item.name}</h4><div>${statLines(item.stats).join('<br>')}</div><div class="meta">Click to open the shop</div>`;
+      const a = item.active;
+      const activeHtml = a ? `<div style="margin-top:6px"><b>Active – ${a.name}</b> [${this.hoveredItem + 1}]<br>${a.description}<div class="meta">Cooldown: ${a.cooldown}s</div></div>` : '';
+      this.tooltip.innerHTML = `<h4>${item.icon} ${item.name}</h4><div>${statLines(item.stats).join('<br>')}</div>${activeHtml}<div class="meta">Click to open the shop</div>`;
       this.tooltip.style.display = 'block';
     } else {
       this.tooltip.style.display = 'none';

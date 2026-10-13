@@ -1,10 +1,11 @@
 import * as THREE from 'three';
-import { CHAMPION_IDS, type ChampionSpawn, DT, type EntityId, type GameEvent, ITEMS, type LaneId, type Team, type Vec2, World, dist } from '@lol/shared';
+import { CHAMPION_IDS, type ChampionSpawn, DT, type EntityId, type GameEvent, ITEMS, type LaneId, type Team, type Vec2, World, brushAt, dist } from '@lol/shared';
 import { CameraController } from './camera';
 import { InputController } from './input';
 import { EntityViewManager } from './render/entityViews';
 import { Effects } from './render/effects';
-import { buildMap } from './render/mapView';
+import { FogOfWar } from './render/fog';
+import { type MapView, buildMap } from './render/mapView';
 import { makeGroundRing } from './render/util';
 import { Hud } from './ui/hud';
 import { Minimap } from './ui/minimap';
@@ -54,6 +55,8 @@ export class Game {
   private readonly minimap: Minimap;
   private readonly hoverRing: THREE.Mesh;
   private readonly shop: Shop;
+  private readonly fog = new FogOfWar(PLAYER_TEAM);
+  private readonly mapView: MapView;
   private accumulator = 0;
   private lastFrame = performance.now();
   private elapsed = 0;
@@ -80,14 +83,14 @@ export class Game {
     this.sun.shadow.bias = -0.0005;
     this.scene.add(this.sun, this.sun.target);
 
-    buildMap(this.scene);
+    this.mapView = buildMap(this.scene, this.fog);
 
     this.world = new World({ champions: buildRoster(playerChampion) });
     this.playerId = this.world.champions().find((c) => !c.champion!.isBot)!.id;
 
     this.cam = new CameraController(window.innerWidth / window.innerHeight);
     this.cam.jumpTo(this.world.get(this.playerId)!.pos);
-    this.views = new EntityViewManager(this.scene, this.playerId);
+    this.views = new EntityViewManager(this.scene, this.playerId, PLAYER_TEAM, this.fog);
     this.effects = new Effects(this.scene);
 
     this.hoverRing = makeGroundRing(0.9, 1.15, 0xff3b3b, 0.9);
@@ -112,6 +115,8 @@ export class Game {
     this.minimap = new Minimap(
       hudRoot,
       this.playerId,
+      PLAYER_TEAM,
+      this.fog,
       (p) => {
         this.cam.locked = false;
         this.cam.jumpTo(p);
@@ -165,9 +170,17 @@ export class Game {
     const followPos: Vec2 | null = playerView && !player.dead ? { x: playerView.renderPos.x, y: playerView.renderPos.z } : null;
     this.cam.update(dt, followPos, { w: window.innerWidth, h: window.innerHeight }, this.effects.shake);
 
-    this.effects.sync(this.world, alpha);
+    this.effects.sync(this.world, alpha, this.world.vision[PLAYER_TEAM]);
     this.effects.update(dt);
     this.updateIndicators(player.pos);
+    this.fog.update(this.world);
+    // Brush you're standing in turns see-through so you can still see your champion.
+    const inBrush = player.dead ? -1 : brushAt(player.pos);
+    this.mapView.brushes.forEach((mesh, i) => {
+      const mat = mesh.material as THREE.MeshStandardMaterial;
+      mat.opacity += ((i === inBrush ? 0.35 : 1) - mat.opacity) * Math.min(1, dt * 10);
+      mat.depthWrite = mat.opacity > 0.99;
+    });
 
     // Keep the shadow frustum centered on what the camera sees.
     const f = this.cam.focus;
@@ -228,6 +241,12 @@ export class Game {
         break;
       case 'gold':
         if (ev.id === this.playerId) this.overlay.floatText(ev.pos, 2.5, `+${ev.amount}g`, 'gold');
+        break;
+      case 'itemUsed':
+        if (ev.id === this.playerId && player) {
+          const item = ITEMS[ev.itemId];
+          this.overlay.floatText(player.pos, 4.5, `${item.icon} ${item.active?.name ?? ''}`, 'magic');
+        }
         break;
       default:
         break;

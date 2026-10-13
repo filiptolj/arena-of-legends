@@ -1,5 +1,5 @@
-import { CHAMPIONS } from './champions.js';
-import { MAP } from './map.js';
+import { type AbilityEffect, CHAMPIONS } from './champions.js';
+import { MAP, type Team } from './map.js';
 import { dist } from './math.js';
 import { type Entity, INVENTORY_SIZE, type ItemId } from './types.js';
 
@@ -21,6 +21,15 @@ export interface ItemStats {
 
 export type ItemTier = 'basic' | 'epic' | 'legendary';
 
+/** An activatable item effect, cast with number keys 1-6. Reuses the ability effect system. */
+export interface ItemActive {
+  name: string;
+  description: string;
+  cooldown: number;
+  range: number;
+  effect: AbilityEffect;
+}
+
 export interface ItemDef {
   id: ItemId;
   name: string;
@@ -32,14 +41,23 @@ export interface ItemDef {
   stats: ItemStats;
   /** Only one item of a unique group may be owned (e.g. boots). */
   unique?: string;
+  active?: ItemActive;
 }
 
 export const SELL_RATIO = 0.7;
 export const MAX_COOLDOWN_REDUCTION = 0.4;
 
-const item = (id: ItemId, name: string, icon: string, tier: ItemTier, cost: number, stats: ItemStats, from: ItemId[] = [], unique?: string): ItemDef => ({
-  id, name, icon, tier, cost, stats, from, unique,
-});
+const item = (
+  id: ItemId,
+  name: string,
+  icon: string,
+  tier: ItemTier,
+  cost: number,
+  stats: ItemStats,
+  from: ItemId[] = [],
+  unique?: string,
+  active?: ItemActive,
+): ItemDef => ({ id, name, icon, tier, cost, stats, from, unique, active });
 
 export const ITEMS: Record<ItemId, ItemDef> = Object.fromEntries(
   [
@@ -51,6 +69,13 @@ export const ITEMS: Record<ItemId, ItemDef> = Object.fromEntries(
     item('paddedVest', 'Padded Vest', '🦺', 'basic', 300, { armor: 15 }),
     item('wardingCloak', 'Warding Cloak', '🧣', 'basic', 450, { magicResist: 25 }),
     item('boots', 'Traveler\'s Boots', '👢', 'basic', 300, { moveSpeed: 0.6 }, [], 'boots'),
+    item('wardTotem', 'Ward Totem', '🏮', 'basic', 75, {}, [], 'trinket', {
+      name: 'Place Ward',
+      description: 'Place a ward that reveals the area (and brush) for 90s.',
+      cooldown: 60,
+      range: 9,
+      effect: { type: 'ward' },
+    }),
 
     item('vampiricBlade', 'Vampiric Blade', '🩸', 'epic', 900, { attackDamage: 15, lifesteal: 0.1 }, ['ironBlade']),
     item('arcaneCodex', 'Arcane Codex', '📜', 'epic', 1100, { abilityPower: 40, cooldownReduction: 0.1 }, ['spellTome']),
@@ -58,11 +83,35 @@ export const ITEMS: Record<ItemId, ItemDef> = Object.fromEntries(
     item('huntersBow', 'Hunter\'s Bow', '🎯', 'epic', 1000, { attackSpeedPct: 0.25 }, ['quickDagger', 'quickDagger']),
     item('swiftstrideBoots', 'Swiftstride Boots', '🥾', 'epic', 900, { moveSpeed: 1.2, attackSpeedPct: 0.1 }, ['boots'], 'boots'),
 
-    item('crimsonEdge', 'Crimson Edge', '⚔️', 'legendary', 3200, { attackDamage: 60, lifesteal: 0.15 }, ['vampiricBlade', 'ironBlade']),
-    item('stormBow', 'Storm Bow', '🌩️', 'legendary', 2800, { attackDamage: 35, attackSpeedPct: 0.4, moveSpeed: 0.4 }, ['huntersBow', 'ironBlade']),
-    item('archmageStaff', 'Archmage Staff', '🪄', 'legendary', 3000, { abilityPower: 100, maxMana: 250, cooldownReduction: 0.1 }, ['arcaneCodex', 'spellTome']),
+    item('crimsonEdge', 'Crimson Edge', '⚔️', 'legendary', 3200, { attackDamage: 60, lifesteal: 0.15 }, ['vampiricBlade', 'ironBlade'], undefined, {
+      name: 'Bloodlust',
+      description: 'Heal 15% of max health and gain 30% attack speed for 4s.',
+      cooldown: 60,
+      range: 0,
+      effect: { type: 'buff', duration: 4, attackSpeedPct: 0.3, healPctMaxHp: 0.15 },
+    }),
+    item('stormBow', 'Storm Bow', '🌩️', 'legendary', 2800, { attackDamage: 35, attackSpeedPct: 0.4, moveSpeed: 0.4 }, ['huntersBow', 'ironBlade'], undefined, {
+      name: 'Gale',
+      description: 'Dash a short distance toward the cursor.',
+      cooldown: 45,
+      range: 5,
+      effect: { type: 'dash', speed: 32, hitRadius: 0 },
+    }),
+    item('archmageStaff', 'Archmage Staff', '🪄', 'legendary', 3000, { abilityPower: 100, maxMana: 250, cooldownReduction: 0.1 }, ['arcaneCodex', 'spellTome'], undefined, {
+      name: 'Time Stop',
+      description: 'Enter stasis for 2s: invulnerable and untargetable, but unable to act.',
+      cooldown: 120,
+      range: 0,
+      effect: { type: 'stasis', duration: 2 },
+    }),
     item('voidScepter', 'Void Scepter', '🔱', 'legendary', 2900, { abilityPower: 70, maxMana: 300, cooldownReduction: 0.2 }, ['arcaneCodex', 'manaGem']),
-    item('titanPlate', 'Titan Plate', '🏰', 'legendary', 2800, { maxHp: 450, armor: 45 }, ['vitalGem', 'paddedVest']),
+    item('titanPlate', 'Titan Plate', '🏰', 'legendary', 2800, { maxHp: 450, armor: 45 }, ['vitalGem', 'paddedVest'], undefined, {
+      name: 'Stoneskin',
+      description: 'Gain a shield of 150 + 10% max health for 3s.',
+      cooldown: 60,
+      range: 0,
+      effect: { type: 'buff', duration: 3, shield: { base: 150, perLevel: 0, kind: 'true' }, shieldPctMaxHp: 0.1 },
+    }),
     item('spellguardMail', 'Spellguard Mail', '🔰', 'legendary', 2500, { maxHp: 350, magicResist: 55 }, ['vitalGem', 'wardingCloak']),
     item('warlordsCleaver', 'Warlord\'s Cleaver', '⚒️', 'legendary', 3100, { attackDamage: 40, maxHp: 300, cooldownReduction: 0.2 }, ['warAxe', 'vitalGem']),
   ].map((i) => [i.id, i]),
@@ -113,7 +162,7 @@ export function purchasePrice(itemId: ItemId, inventory: (ItemId | null)[]): { c
 }
 
 export function canShop(e: Entity): boolean {
-  return e.dead || dist(e.pos, MAP.fountains[e.team]) <= MAP.fountainRadius + 2;
+  return e.dead || dist(e.pos, MAP.fountains[e.team as Team]) <= MAP.fountainRadius + 2;
 }
 
 export type BuyFailure = 'location' | 'gold' | 'full' | 'unique' | 'unknown';
