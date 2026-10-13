@@ -10,6 +10,19 @@ npm install
 npm run dev        # http://localhost:5173
 ```
 
+### Multiplayer
+
+```bash
+npm run dev:server # game server on :3001 (keep running)
+npm run dev        # client on :5173; /ws is proxied to the server
+```
+
+Open the client, enter a name and choose **Create room**. Share the 5-letter room code; friends
+choose **Join**. In the lobby, everyone picks a slot (team + lane) and a champion. Empty slots are
+filled by bots, and the host starts the match. If a player disconnects, a bot takes over their champion.
+
+To host a build from a single process: `npm run build && npm start`, then open `http://<host>:3001`.
+
 Other scripts:
 
 | Command | What it does |
@@ -17,6 +30,7 @@ Other scripts:
 | `npm test` | Runs the simulation tests, including a 15-minute bot-vs-bot game |
 | `npm run typecheck` | Type-checks both packages |
 | `npm run build` | Builds the client into `client/dist` |
+| `npm start` | Runs the game server; it also serves `client/dist` |
 
 ## Controls
 
@@ -71,8 +85,11 @@ shared/   Simulation in pure TypeScript with no DOM or Three.js; can run on a se
   src/navgrid.ts        Walkability grid + A* with path smoothing
   src/map.ts            Lanes, towers, rocks, fountains (point-symmetric map)
   src/champions.ts      Champion + ability definitions
+  src/net/protocol.ts   Wire protocol: lobby messages, fog-filtered snapshots, command validation
+server/   Node + ws authoritative server: rooms, lobby, 30 Hz simulation, 15 Hz snapshots
 client/   Three.js renderer + DOM HUD
-  src/game.ts           Fixed-timestep loop, render interpolation, event routing
+  src/session.ts        LocalSession (sim in the browser) / NetSession (mirror fed by snapshots)
+  src/game.ts           Render loop, interpolation, event routing
   src/render/           Map, entity models, projectiles/particles
   src/ui/               HUD, health bars/floating text, minimap
   src/input.ts          Mouse/keyboard → Commands
@@ -80,15 +97,18 @@ client/   Three.js renderer + DOM HUD
 
 The simulation advances at 30 ticks/s. The client renders between ticks and interpolates
 from `prevPos` to `pos`. Input only produces `Command` objects (`move`, `attack`, `cast`, ...),
-and the simulation only produces `GameEvent`s. Keeping that boundary means multiplayer can be
-added by running `World` on a Node server and sending commands and snapshots over WebSockets.
+and the simulation only produces `GameEvent`s. Offline, `World` runs in the browser. Online,
+the server runs it, and each client gets snapshots holding only what its team can see. Hidden
+enemies are never sent, so fog of war can't be bypassed by reading network traffic. The server
+replaces the unit id on every command with the sender's champion.
 
 ## Roadmap
 
 - [x] Phase 1: 3D map with 3 lanes, minion waves, towers/nexus, one champion with QWER abilities, bots, HUD, minimap
 - [x] Phase 2a: 4 champions, champion select, item shop with recipes, bot itemization
 - [x] Phase 2b: jungle camps and blessings, drake, fog of war, brush, wards, item actives
-- [ ] Phase 3: authoritative Node + WebSocket server, lobbies, client prediction
+- [x] Phase 3: authoritative Node + WebSocket server, rooms and lobby, fog-filtered snapshots, bot takeover on disconnect
+- [ ] Next: client-side prediction, delta-compressed snapshots, reconnect, ranked matchmaking
 
 ## License
 

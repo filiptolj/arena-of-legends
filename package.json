@@ -6,12 +6,15 @@
   "type": "module",
   "workspaces": [
     "shared",
-    "client"
+    "client",
+    "server"
   ],
   "scripts": {
     "dev": "npm run dev -w client",
+    "dev:server": "npm run dev -w server",
     "build": "npm run typecheck && npm run build -w client",
-    "typecheck": "tsc -p shared --noEmit && tsc -p client --noEmit",
+    "start": "npm run start -w server",
+    "typecheck": "tsc -p shared --noEmit && tsc -p client --noEmit && tsc -p server --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
   },

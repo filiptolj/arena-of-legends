@@ -11,3 +11,4 @@ export { brushAt, isVisibleTo } from './systems/vision.js';
 export type { CampState } from './systems/jungle.js';
 export { attackSpeedOf, hasBlessing, inStasis, isStunned, moveSpeedOf, shieldOf } from './systems/status.js';
 export { isInvulnerable, inAttackRange } from './systems/combat.js';
+export * from './net/protocol.js';

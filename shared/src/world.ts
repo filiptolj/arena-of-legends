@@ -290,6 +290,16 @@ export class World {
     }
   }
 
+  /** Hands a champion to (or takes it back from) the bot AI, e.g. when a player disconnects. */
+  setBotControl(id: EntityId, enabled: boolean): void {
+    const e = this.get(id);
+    if (!e?.champion) return;
+    e.champion.isBot = enabled;
+    const idx = this.bots.findIndex((b) => b.id === id);
+    if (enabled && idx < 0) this.bots.push(new BotController(id));
+    if (!enabled && idx >= 0) this.bots.splice(idx, 1);
+  }
+
   cancelRecall(e: Entity): void {
     if (e.champion && e.champion.recallTimer > 0) {
       e.champion.recallTimer = 0;

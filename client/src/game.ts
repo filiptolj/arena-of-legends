@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CHAMPION_IDS, type ChampionSpawn, DT, type EntityId, type GameEvent, ITEMS, type LaneId, type Team, type Vec2, World, brushAt, dist } from '@lol/shared';
+import { type EntityId, type GameEvent, ITEMS, type Team, type Vec2, type World, brushAt, dist } from '@lol/shared';
 import { CameraController } from './camera';
 import { InputController } from './input';
 import { EntityViewManager } from './render/entityViews';
@@ -10,36 +10,10 @@ import { makeGroundRing } from './render/util';
 import { Hud } from './ui/hud';
 import { Minimap } from './ui/minimap';
 import { WorldOverlay } from './ui/overlay';
+import type { Session } from './session';
 import { Shop } from './ui/shop';
 
-const MAX_STEPS_PER_FRAME = 5;
-
-const PLAYER_TEAM: Team = 'blue';
-const BOT_SLOTS: { team: Team; lane: LaneId; name: string }[] = [
-  { team: 'blue', lane: 'top', name: 'Rook' },
-  { team: 'blue', lane: 'bot', name: 'Vale' },
-  { team: 'red', lane: 'top', name: 'Ember' },
-  { team: 'red', lane: 'mid', name: 'Nyx' },
-  { team: 'red', lane: 'bot', name: 'Frost' },
-];
-
-const shuffled = <T,>(xs: T[]): T[] => xs.map((x) => [Math.random(), x] as const).sort((a, b) => a[0] - b[0]).map(([, x]) => x);
-
-/** Player in mid; bots get random champions with no duplicates within a team. */
-function buildRoster(playerChampion: string): ChampionSpawn[] {
-  const roster: ChampionSpawn[] = [{ team: PLAYER_TEAM, defId: playerChampion, name: 'You', lane: 'mid', isBot: false }];
-  const pools: Record<Team, string[]> = {
-    blue: shuffled(CHAMPION_IDS.filter((id) => id !== playerChampion)),
-    red: shuffled([...CHAMPION_IDS]),
-  };
-  for (const slot of BOT_SLOTS) {
-    const defId = pools[slot.team].pop() ?? CHAMPION_IDS[0];
-    roster.push({ team: slot.team, defId, name: slot.name, lane: slot.lane, isBot: true });
-  }
-  return roster;
-}
-
-/** Client game: runs the simulation locally at a fixed tick and renders it with interpolation. */
+/** Client game: renders a Session's world with interpolation and turns input into commands. */
 export class Game {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
@@ -55,13 +29,22 @@ export class Game {
   private readonly minimap: Minimap;
   private readonly hoverRing: THREE.Mesh;
   private readonly shop: Shop;
-  private readonly fog = new FogOfWar(PLAYER_TEAM);
+  private readonly fog: FogOfWar;
   private readonly mapView: MapView;
-  private accumulator = 0;
+  private readonly team: Team;
   private lastFrame = performance.now();
   private elapsed = 0;
 
-  constructor(canvas: HTMLCanvasElement, overlayRoot: HTMLElement, hudRoot: HTMLElement, playerChampion: string) {
+  constructor(
+    canvas: HTMLCanvasElement,
+    overlayRoot: HTMLElement,
+    hudRoot: HTMLElement,
+    private readonly session: Session,
+  ) {
+    this.world = session.world;
+    this.playerId = session.playerId;
+    this.team = session.team;
+    this.fog = new FogOfWar(this.team);
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
@@ -85,28 +68,26 @@ export class Game {
 
     this.mapView = buildMap(this.scene, this.fog);
 
-    this.world = new World({ champions: buildRoster(playerChampion) });
-    this.playerId = this.world.champions().find((c) => !c.champion!.isBot)!.id;
 
     this.cam = new CameraController(window.innerWidth / window.innerHeight);
     this.cam.jumpTo(this.world.get(this.playerId)!.pos);
-    this.views = new EntityViewManager(this.scene, this.playerId, PLAYER_TEAM, this.fog);
+    this.views = new EntityViewManager(this.scene, this.playerId, this.team, this.fog);
     this.effects = new Effects(this.scene);
 
     this.hoverRing = makeGroundRing(0.9, 1.15, 0xff3b3b, 0.9);
     this.hoverRing.visible = false;
     this.scene.add(this.hoverRing);
 
-    this.overlay = new WorldOverlay(overlayRoot, this.cam.camera, PLAYER_TEAM);
-    this.hud = new Hud(hudRoot, this.world, this.playerId, PLAYER_TEAM);
+    this.overlay = new WorldOverlay(overlayRoot, this.cam.camera, this.team);
+    this.hud = new Hud(hudRoot, this.world, this.playerId, this.team);
     this.hud.onRestart = () => location.reload();
-    this.shop = new Shop(hudRoot, this.world, this.playerId, (cmd) => this.world.issue(cmd));
+    this.shop = new Shop(hudRoot, this.world, this.playerId, (cmd) => session.send(cmd));
     this.hud.onOpenShop = () => this.shop.toggle(true);
     // Start in the fountain with the shop open, like a real match.
     this.shop.toggle(true);
 
     this.input = new InputController(canvas, this.cam, this.world, this.playerId, this.views, {
-      send: (cmd) => this.world.issue(cmd),
+      send: (cmd) => session.send(cmd),
       clickMarker: (p, attack) => this.effects.clickMarker(p, attack),
       toggleHelp: () => this.hud.toggleHelp(),
       toggleShop: (open) => this.shop.toggle(open),
@@ -115,7 +96,7 @@ export class Game {
     this.minimap = new Minimap(
       hudRoot,
       this.playerId,
-      PLAYER_TEAM,
+      this.team,
       this.fog,
       (p) => {
         this.cam.locked = false;
@@ -149,19 +130,9 @@ export class Game {
     this.lastFrame = now;
     this.elapsed += dt;
 
-    // Pause the simulation while the help screen is open.
-    if (!this.hud.helpVisible && !this.world.winner) {
-      this.accumulator += dt;
-      let steps = 0;
-      while (this.accumulator >= DT && steps < MAX_STEPS_PER_FRAME) {
-        this.world.step();
-        for (const ev of this.world.drainEvents()) this.handleEvent(ev);
-        this.accumulator -= DT;
-        steps++;
-      }
-      if (steps === MAX_STEPS_PER_FRAME) this.accumulator = 0;
-    }
-    const alpha = this.accumulator / DT;
+    // Offline games pause while the help screen is open; online games can't.
+    const { events, alpha } = this.session.advance(dt, this.hud.helpVisible);
+    for (const ev of events) this.handleEvent(ev);
 
     this.input.update(dt);
     this.views.sync(this.world, alpha, dt, this.elapsed);
@@ -170,7 +141,7 @@ export class Game {
     const followPos: Vec2 | null = playerView && !player.dead ? { x: playerView.renderPos.x, y: playerView.renderPos.z } : null;
     this.cam.update(dt, followPos, { w: window.innerWidth, h: window.innerHeight }, this.effects.shake);
 
-    this.effects.sync(this.world, alpha, this.world.vision[PLAYER_TEAM]);
+    this.effects.sync(this.world, alpha, this.world.vision[this.team]);
     this.effects.update(dt);
     this.updateIndicators(player.pos);
     this.fog.update(this.world);
@@ -205,7 +176,7 @@ export class Game {
 
     // Enemy tower range rings appear when the player gets close; red when it's targeting you.
     for (const e of this.world.entities.values()) {
-      if (e.kind !== 'tower' || e.team === PLAYER_TEAM) continue;
+      if (e.kind !== 'tower' || e.team === this.team) continue;
       const view = this.views.get(e.id);
       if (!view) continue;
       const reach = e.attackRange + e.radius;
