@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { type Entity, type EntityId, type Faction, type Team, type World, dist, lerp } from '@lol/shared';
 import type { FogOfWar } from './fog';
-import { TEAM_COLOR, disposeObject, makeGlow, makeGroundRing } from './util';
+import { CHAMPION_MODEL_SPECS, heroModel } from './championModels';
+import { TEAM_COLOR, disposeObject, makeGlow, makeGroundRing, mesh, std } from './util';
 
 interface ViewParts {
   root: THREE.Group;
@@ -36,7 +37,9 @@ export class EntityView {
     crimson: THREE.Mesh;
     azure: THREE.Mesh;
     stasis: THREE.Mesh;
+    root: THREE.Group;
   } | null = null;
+  private stealthed = false;
   /** Interpolated ground position for overlays. */
   readonly renderPos = new THREE.Vector3();
   dying = false;
@@ -181,8 +184,18 @@ export class EntityView {
       );
       stasis.position.y = this.height * 0.45;
       stasis.scale.y = this.height / (r * 2.6);
-      this.statusFx = { shield, aura, stun, slow, crimson, azure, stasis };
-      this.root.add(shield, aura, stun, slow, crimson, azure, stasis);
+      // Roots: a ring of vines around the feet.
+      const rootFx = new THREE.Group();
+      const vine = new THREE.MeshStandardMaterial({ color: 0x4caf50, emissive: 0x2e7d32, emissiveIntensity: 0.6, flatShading: true });
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        const v = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.9, 5), vine);
+        v.position.set(Math.cos(a) * r * 1.1, 0.4, Math.sin(a) * r * 1.1);
+        v.rotation.set(Math.sin(a) * 0.5, 0, -Math.cos(a) * 0.5);
+        rootFx.add(v);
+      }
+      this.statusFx = { shield, aura, stun, slow, crimson, azure, stasis, root: rootFx };
+      this.root.add(shield, aura, stun, slow, crimson, azure, stasis, rootFx);
     }
     const fx = this.statusFx;
     const has = (t: string) => !e.dead && e.statuses.some((s) => s.type === t);
@@ -191,6 +204,19 @@ export class EntityView {
     fx.stun.visible = has('stun');
     fx.slow.visible = has('slow');
     fx.stasis.visible = has('stasis');
+    fx.root.visible = has('root');
+    fx.root.rotation.y = time * 0.5;
+
+    // Stealthed allies (and you) render see-through; enemies don't render at all.
+    const stealthed = has('stealth');
+    if (stealthed !== this.stealthed) {
+      this.stealthed = stealthed;
+      for (const m of this.materials) {
+        m.transparent = stealthed;
+        m.opacity = stealthed ? 0.35 : 1;
+        m.needsUpdate = true;
+      }
+    }
     const blessed = (b: string) => !e.dead && e.statuses.some((s) => s.type === 'blessing' && s.blessing === b);
     fx.crimson.visible = blessed('crimson');
     fx.azure.visible = blessed('azure');
@@ -238,19 +264,6 @@ export class EntityView {
 
 // ---------------------------------------------------------------------------
 // Model factories (built from primitives; swap for glTF later).
-
-function std(color: number, opts: Partial<THREE.MeshStandardMaterialParameters> = {}): THREE.MeshStandardMaterial {
-  const m = new THREE.MeshStandardMaterial({ color, roughness: 0.6, flatShading: true, ...opts });
-  m.userData.baseEmissive = opts.emissiveIntensity ?? 0;
-  return m;
-}
-
-function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, y = 0): THREE.Mesh {
-  const m = new THREE.Mesh(geo, mat);
-  m.position.y = y;
-  m.castShadow = true;
-  return m;
-}
 
 function arcanistModel(team: Team, body: THREE.Group): Partial<ViewParts> {
   const tc = TEAM_COLOR[team];
@@ -365,7 +378,9 @@ function championModel(defId: string, team: Team, isPlayer: boolean): ViewParts 
   const root = new THREE.Group();
   const body = new THREE.Group();
   root.add(body);
-  const extra = (CHAMPION_MODELS[defId] ?? arcanistModel)(team, body);
+  const custom = CHAMPION_MODELS[defId];
+  const spec = CHAMPION_MODEL_SPECS[defId];
+  const extra = custom ? custom(team, body) : spec ? heroModel(spec, team, body) : arcanistModel(team, body);
   root.add(makeGroundRing(1.0, 1.25, isPlayer ? 0x4cff7a : TEAM_COLOR[team], isPlayer ? 0.9 : 0.6));
   return { root, body, height: extra.height ?? 4, pulse: extra.pulse };
 }

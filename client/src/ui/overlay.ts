@@ -144,7 +144,7 @@ export class WorldOverlay {
     this.floats = alive;
   }
 
-  floatText(pos: Vec2, height: number, text: string, cls: DamageKind | 'taken' | 'gold'): void {
+  floatText(pos: Vec2, height: number, text: string, cls: DamageKind | 'taken' | 'gold' | 'heal'): void {
     const el = document.createElement('div');
     el.className = `float-text ${cls}`;
     el.textContent = text;

@@ -63,7 +63,9 @@ export function canTarget(world: World, attacker: Entity, target: Entity | undef
 
 /** Attacking or casting gives away your position, even from brush. */
 export function reveal(world: World, e: Entity): void {
-  if (e.champion) e.revealedUntil = world.time + REVEAL_TIME;
+  if (!e.champion) return;
+  e.revealedUntil = world.time + REVEAL_TIME;
+  if (e.statuses.some((s) => s.type === 'stealth')) e.statuses = e.statuses.filter((s) => s.type !== 'stealth');
 }
 
 export function performAttack(world: World, attacker: Entity, target: Entity): void {
@@ -273,7 +275,9 @@ export function updateProjectiles(world: World, dt: number): void {
       const struck = p.pierce ? hits : hits.slice(0, 1);
       for (const hit of struck) {
         applyDamage(world, p.sourceId, hit, p.damage, p.damageKind);
-        if (p.status) applyStatus(hit, p.status);
+        // Pulls drag toward the caster; knockbacks push away from the projectile.
+        const origin = p.status?.type === 'pull' ? (world.get(p.sourceId)?.pos ?? p.pos) : p.pos;
+        if (p.status) applyStatus(hit, p.status, { world, origin });
         world.emit({ type: 'projectileHit', visual: p.visual, abilityId: p.abilityId, team: p.team, pos: { ...hit.pos } });
         (p.hitIds ??= []).push(hit.id);
       }
@@ -300,7 +304,7 @@ export function updateZones(world: World, dt: number): void {
     );
     for (const v of victims) {
       applyDamage(world, z.sourceId, v, z.damage, z.damageKind);
-      if (z.status) applyStatus(v, z.status);
+      if (z.status) applyStatus(v, z.status, { world, origin: z.pos });
     }
   }
   world.zones = keep;

@@ -337,11 +337,20 @@ export class Hud {
     if (this.hoveredSlot !== null) {
       const a = def.abilities[this.hoveredSlot];
       const dmg = abilityDamage(a, me);
-      const scaling = a.damage ? [a.damage.ad && `${Math.round(a.damage.ad * 100)}% AD`, a.damage.ap && `${Math.round(a.damage.ap * 100)}% AP`].filter(Boolean).join(' + ') : '';
+      const scaling = a.damage
+        ? [
+            a.damage.ad && `${Math.round(a.damage.ad * 100)}% AD`,
+            a.damage.ap && `${Math.round(a.damage.ap * 100)}% AP`,
+            a.damage.missingHp && `${Math.round(a.damage.missingHp * 100)}% of target's missing health`,
+          ]
+            .filter(Boolean)
+            .join(' + ')
+        : '';
+      const verb = a.effect.type === 'heal' ? 'Heals' : 'Damage';
       this.tooltip.innerHTML = `
         <h4>${a.name} <small>[${KEYS[this.hoveredSlot]}]</small></h4>
         <div>${a.description}</div>
-        <div class="meta">${dmg ? `Damage: ${Math.round(dmg)} ${a.damage!.kind}${scaling ? ` (+${scaling})` : ''}<br>` : ''}Cooldown: ${abilityCooldown(a, me).toFixed(1)}s · Mana: ${a.manaCost}${a.range ? ` · Range: ${a.range}` : ''}${a.requiredLevel > 1 ? ` · Unlocks at level ${a.requiredLevel}` : ''}</div>`;
+        <div class="meta">${dmg ? `${verb}: ${Math.round(dmg)}${a.effect.type === 'heal' ? '' : ` ${a.damage!.kind}`}${scaling ? ` (+${scaling})` : ''}<br>` : ''}Cooldown: ${abilityCooldown(a, me).toFixed(1)}s · Mana: ${a.manaCost}${a.range ? ` · Range: ${a.range}` : ''}${a.requiredLevel > 1 ? ` · Unlocks at level ${a.requiredLevel}` : ''}</div>`;
       this.tooltip.style.display = 'block';
     } else if (this.hoveredItem !== null && c.items[this.hoveredItem]) {
       const item = ITEMS[c.items[this.hoveredItem]!];

@@ -20,6 +20,8 @@ export function brushAt(p: Vec2): number {
   return -1;
 }
 
+const STEALTH_DETECT_RANGE = 3;
+
 /** Vision is recomputed every few ticks rather than every tick. */
 export const VISION_INTERVAL_TICKS = 3;
 
@@ -56,8 +58,10 @@ export function computeVision(world: World): Record<Team, Set<number>> {
       }
       const b = brushOf.get(e.id) ?? -1;
       if (b >= 0 && e.revealedUntil <= world.time && !occupied[team].has(b)) continue;
+      // Stealthed units are only spotted by enemies right next to them.
+      const stealthed = e.statuses.some((st) => st.type === 'stealth');
       for (const v of viewers[team]) {
-        const r = v.sightRange + e.radius;
+        const r = stealthed ? STEALTH_DETECT_RANGE + e.radius : v.sightRange + e.radius;
         const dx = v.pos.x - e.pos.x;
         const dy = v.pos.y - e.pos.y;
         if (dx * dx + dy * dy <= r * r) {

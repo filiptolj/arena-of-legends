@@ -77,3 +77,19 @@ export function disposeObject(obj: THREE.Object3D): void {
     else mat?.dispose();
   });
 }
+
+// ---------------------------------------------------------------------------
+// Model building helpers.
+
+export function std(color: number, opts: Partial<THREE.MeshStandardMaterialParameters> = {}): THREE.MeshStandardMaterial {
+  const m = new THREE.MeshStandardMaterial({ color, roughness: 0.6, flatShading: true, ...opts });
+  m.userData.baseEmissive = opts.emissiveIntensity ?? 0;
+  return m;
+}
+
+export function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, y = 0): THREE.Mesh {
+  const m = new THREE.Mesh(geo, mat);
+  m.position.y = y;
+  m.castShadow = true;
+  return m;
+}

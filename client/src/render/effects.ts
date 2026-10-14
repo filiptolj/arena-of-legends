@@ -244,6 +244,31 @@ export class Effects {
         }
         break;
       }
+      case 'strike': {
+        // A pillar of light slamming into the target.
+        const color = abilityColor(ev.abilityId, 0xffd700);
+        const beam = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.6, 0.9, 14, 12, 1, true),
+          new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
+        );
+        beam.position.set(ev.pos.x, 7, ev.pos.y);
+        this.add(beam, 0.45, (p, t) => {
+          p.obj.scale.set(1 - t * 0.7, 1, 1 - t * 0.7);
+          ((p.obj as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = 0.8 * (1 - t);
+        });
+        this.burst(ev.pos, 1.5, color, 6, 0.5);
+        this.sparks(ev.pos, 1.5, color, 20, 12, 0.7);
+        this.shake = Math.max(this.shake, 0.4);
+        break;
+      }
+      case 'heal':
+        this.ring(ev.pos, Math.min(ev.radius, 12), 0x6aff9a, 0.7);
+        break;
+      case 'healed': {
+        const e = world.get(ev.id);
+        if (e) this.burst(e.pos, 2, 0x6aff9a, 3, 0.5);
+        break;
+      }
       case 'wardPlaced':
         this.ring(ev.pos, 1.5, 0xffe9a8, 0.5);
         break;

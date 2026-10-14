@@ -1,10 +1,20 @@
+import { type Vec2, dist, moveToward, normalize, sub } from '../math.js';
 import type { Blessing, Entity, OnHitStatus } from '../types.js';
+import type { World } from '../world.js';
 
 const MAX_ATTACK_SPEED = 2.5;
 
 /** Stunned or in stasis: can't move, attack or cast. */
 export function isStunned(e: Entity): boolean {
   return e.statuses.some((s) => s.type === 'stun' || s.type === 'stasis');
+}
+
+export function isRooted(e: Entity): boolean {
+  return e.statuses.some((s) => s.type === 'root');
+}
+
+export function isStealthed(e: Entity): boolean {
+  return e.statuses.some((s) => s.type === 'stealth');
 }
 
 export function inStasis(e: Entity): boolean {
@@ -43,10 +53,60 @@ export function shieldOf(e: Entity): number {
   return total;
 }
 
-export function applyStatus(e: Entity, st: OnHitStatus): void {
-  if (e.dead || e.kind === 'tower' || e.kind === 'nexus') return;
-  if (st.type === 'stun') e.statuses.push({ type: 'stun', remaining: st.duration });
-  else e.statuses.push({ type: 'slow', amount: st.amount ?? 0.3, remaining: st.duration });
+/** Where an effect came from, for pulls and knockbacks. */
+export interface StatusContext {
+  world: World;
+  origin: Vec2;
+}
+
+export function applyStatus(e: Entity, st: OnHitStatus, ctx?: StatusContext): void {
+  if (e.dead || e.kind === 'tower' || e.kind === 'nexus' || e.kind === 'ward' || inStasis(e)) return;
+  switch (st.type) {
+    case 'stun':
+      e.statuses.push({ type: 'stun', remaining: st.duration });
+      break;
+    case 'root':
+      e.statuses.push({ type: 'root', remaining: st.duration });
+      break;
+    case 'slow':
+      e.statuses.push({ type: 'slow', amount: st.amount ?? 0.3, remaining: st.duration });
+      break;
+    case 'pull':
+      if (ctx) displace(e, ctx.world, moveToward(ctx.origin, e.pos, 1.8 + e.radius));
+      if (st.duration > 0) e.statuses.push({ type: 'stun', remaining: st.duration });
+      break;
+    case 'knockback': {
+      if (!ctx) break;
+      let away = normalize(sub(e.pos, ctx.origin));
+      if (away.x === 0 && away.y === 0) away = { x: 0, y: 1 };
+      const amount = st.amount ?? 3;
+      displace(e, ctx.world, { x: e.pos.x + away.x * amount, y: e.pos.y + away.y * amount });
+      if (st.duration > 0) e.statuses.push({ type: 'stun', remaining: st.duration });
+      break;
+    }
+  }
+}
+
+/** Slides a unit toward `to`, stopping at the last walkable point (no wall clipping). */
+function displace(e: Entity, world: World, to: Vec2): void {
+  const from = { ...e.pos };
+  const total = dist(from, to);
+  const steps = Math.max(1, Math.ceil(total / 0.4));
+  let last = from;
+  for (let i = 1; i <= steps; i++) {
+    const p = moveToward(from, to, (total * i) / steps);
+    if (!world.nav.isWalkable(p)) break;
+    last = p;
+  }
+  e.pos = last;
+  e.path = [];
+  e.pathGoal = null;
+  if (e.champion) e.champion.dash = null;
+}
+
+/** Removes crowd control (cleanse effects). */
+export function cleanse(e: Entity): void {
+  e.statuses = e.statuses.filter((s) => s.type !== 'slow' && s.type !== 'stun' && s.type !== 'root');
 }
 
 /** Consumes shields; returns the damage left over. */

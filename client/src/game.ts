@@ -213,6 +213,13 @@ export class Game {
       case 'gold':
         if (ev.id === this.playerId) this.overlay.floatText(ev.pos, 2.5, `+${ev.amount}g`, 'gold');
         break;
+      case 'healed': {
+        const target = this.world.get(ev.id);
+        if (target && (ev.id === this.playerId || ev.sourceId === this.playerId)) {
+          this.overlay.floatText(target.pos, this.views.get(ev.id)?.height ?? 3, `+${Math.round(ev.amount)}`, 'heal');
+        }
+        break;
+      }
       case 'itemUsed':
         if (ev.id === this.playerId && player) {
           const item = ITEMS[ev.itemId];

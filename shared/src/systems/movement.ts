@@ -1,7 +1,7 @@
 import { type Vec2, dist, moveToward } from '../math.js';
 import type { Entity } from '../types.js';
 import type { World } from '../world.js';
-import { moveSpeedOf } from './status.js';
+import { isRooted, moveSpeedOf } from './status.js';
 
 const REPATH_INTERVAL = 0.3;
 const GOAL_DRIFT = 1;
@@ -24,6 +24,7 @@ export function faceToward(e: Entity, p: Vec2): void {
  * Returns true once the path is exhausted (arrived or unreachable).
  */
 export function moveAlongPath(world: World, e: Entity, goal: Vec2, dt: number): boolean {
+  if (isRooted(e)) return false;
   e.repathTimer -= dt;
   const needsPath =
     e.pathGoal === null || (dist(e.pathGoal, goal) > GOAL_DRIFT && (e.repathTimer <= 0 || e.path.length === 0));

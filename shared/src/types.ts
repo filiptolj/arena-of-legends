@@ -23,6 +23,10 @@ export type Order =
 export type StatusEffect =
   | { type: 'slow'; amount: number; remaining: number }
   | { type: 'stun'; remaining: number }
+  /** Can't move (or dash), but can still attack and cast. */
+  | { type: 'root'; remaining: number }
+  /** Invisible to enemies unless they're right next to you; broken by attacking or casting. */
+  | { type: 'stealth'; remaining: number }
   | { type: 'shield'; amount: number; remaining: number }
   | { type: 'buff'; remaining: number; attackSpeedPct: number; moveSpeedPct: number; armor: number }
   /** Jungle buff from the Crimson Sentinel or Azure Golem. */
@@ -151,7 +155,8 @@ export interface Entity {
 export type ProjectileVisual = 'attack' | 'caster' | 'tower' | 'ability';
 
 export interface OnHitStatus {
-  type: 'slow' | 'stun';
+  /** `pull` drags the target to the caster; `knockback` pushes it `amount` units away. */
+  type: 'slow' | 'stun' | 'root' | 'pull' | 'knockback';
   amount?: number;
   duration: number;
 }
@@ -218,6 +223,9 @@ export type GameEvent =
   | { type: 'blink'; id: EntityId; abilityId: string; from: Vec2; to: Vec2 }
   | { type: 'nova'; id: EntityId; abilityId: string; pos: Vec2; radius: number }
   | { type: 'buff'; id: EntityId; abilityId: string }
+  | { type: 'strike'; id: EntityId; targetId: EntityId; abilityId: string; pos: Vec2 }
+  | { type: 'heal'; id: EntityId; abilityId: string; pos: Vec2; radius: number }
+  | { type: 'healed'; id: EntityId; sourceId: EntityId; amount: number }
   | { type: 'zoneExplode'; abilityId: string; pos: Vec2; radius: number; team: Team }
   | { type: 'projectileHit'; visual: ProjectileVisual; abilityId?: string; team: Team; pos: Vec2 }
   | { type: 'respawn'; id: EntityId }

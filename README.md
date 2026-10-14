@@ -49,20 +49,19 @@ Other scripts:
 
 ## Champions
 
-| Champion | Role | Q | W | E | R |
-|---|---|---|---|---|---|
-| Arcanist | Mage | Arcane Bolt (skillshot) | Blink | Frost Nova (slow) | Meteor |
-| Ranger | Marksman | Piercing Arrow (pierces) | Rapid Fire (+AS) | Tumble (dash) | Arrow Storm |
-| Warden | Tank | Shield Bash (stun) | Iron Will (shield) | Charge (dash, slow) | Earthshatter (stun) |
-| Shade | Assassin | Shadow Strike (dash) | Smoke Veil (+MS) | Fan of Knives (slow) | Death Lotus |
+There are 14 champions, several inspired by League archetypes: Arcanist (mage), Ranger (marksman), Warden (tank),
+Shade (assassin), Ironhook (hook tank), Valor (juggernaut with an execute), Sunweaver (light mage),
+Frostbloom (frost archer), Bloodreaver (executioner), Mistweaver (healer), Nightstalker (stealth
+assassin), Stonewall (engage tank), Volt (sniper with traps) and Tempest (dash swordsman).
 
-Abilities are data in `shared/src/champions.ts`. Each one picks an effect type (`skillshot`,
-`blink`, `dash`, `nova`, `zone` or `buff`) and a damage spec with AD/AP ratios, so a new
-champion is mostly a new data entry plus a model in `client/src/render/entityViews.ts`.
+Abilities are data in `shared/src/champions.ts`. Each one uses an effect type: `skillshot` (optionally
+piercing or multi-shot), `blink`, `dash` (optionally backward), `nova`, `zone`, `buff` (shields, haste,
+stealth), `strike` (point-and-click, optionally an execute), `heal`, `ward`, `stasis` or `cleanse`. On-hit
+effects include slow, stun, root, pull and knockback.
 
 ## Items
 
-There are 20 items in `shared/src/items.ts`: basic, epic and legendary tiers with recipes.
+There are 47 items in `shared/src/items.ts`: basics, a mid tier of epic components and boots upgrades, and legendaries, all with recipes.
 Components you already own are discounted from the price, as in LoL. Items give AD, AP,
 attack speed, health, mana, armor, MR, move speed, lifesteal and cooldown reduction (capped at 40%).
 Bots follow each champion's recommended build and recall to shop once they have enough gold.

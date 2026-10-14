@@ -4,7 +4,7 @@ import { nextPurchase, purchasePrice } from '../items.js';
 import { MAP, type Team, laneWaypoints } from '../map.js';
 import { type Vec2, dist, moveToward } from '../math.js';
 import { ITEMS } from '../items.js';
-import { abilityDamage, abilityOf, castBlocker, itemUseBlocker } from '../systems/abilities.js';
+import { abilityOf, castBlocker, damageAgainst, itemUseBlocker } from '../systems/abilities.js';
 import { canTarget } from '../systems/combat.js';
 import { isVisibleTo } from '../systems/vision.js';
 import type { AbilitySlot, Entity, EntityId } from '../types.js';
@@ -56,6 +56,11 @@ export class BotController {
     }
 
     const enemyChamp = this.nearestEnemyChampion(world, me, ENGAGE_RANGE);
+    this.support(world, me);
+    // Quicksilver-style cleanses break crowd control mid-fight.
+    if (me.statuses.some((st) => st.type === 'root' || st.type === 'stun' || (st.type === 'slow' && st.amount >= 0.3))) {
+      this.useItem(world, me, (fx) => fx.type === 'cleanse', me.pos);
+    }
 
     if (hpPct < 0.3 || this.retreating) {
       this.retreating = true;
@@ -108,8 +113,10 @@ export class BotController {
     for (const slot of SLOTS) {
       if (castBlocker(me, slot)) continue;
       const fx = abilityOf(me, slot).effect;
-      if (fx.type === 'blink' || fx.type === 'dash' || (fx.type === 'buff' && (fx.moveSpeedPct || fx.shield))) {
-        this.cast(world, me, slot, toward);
+      if (fx.type === 'blink' || fx.type === 'dash' || (fx.type === 'buff' && (fx.moveSpeedPct || fx.shield || fx.stealth))) {
+        // Backward dashes go away from the cursor, so aim at the opposite side.
+        const aim = fx.type === 'dash' && fx.backward ? { x: 2 * me.pos.x - toward.x, y: 2 * me.pos.y - toward.y } : toward;
+        this.cast(world, me, slot, aim);
         return;
       }
     }
@@ -120,8 +127,10 @@ export class BotController {
     const enemyPct = enemy.hp / enemy.maxHp;
     const d = dist(me.pos, enemy.pos);
     const ultReady = !castBlocker(me, 3);
-    const ultDamage = abilityDamage(abilityOf(me, 3), me);
-    const canExecute = ultReady && ultDamage * 0.8 >= enemy.hp && d <= abilityOf(me, 3).range + 3;
+    const ult = abilityOf(me, 3);
+    const ultDamage = damageAgainst(ult, me, enemy);
+    const ultReach = ult.effect.type === 'nova' ? ult.effect.radius : ult.range;
+    const canExecute = ultReady && ultDamage > 0 && ultDamage * 0.8 >= enemy.hp && d <= ultReach + 3;
     const aggressive = canExecute || (myPct > 0.45 && myPct >= enemyPct && this.isSafe(world, me, enemy.pos));
 
     if (!aggressive) {
@@ -177,8 +186,34 @@ export class BotController {
         else if ((fx.shield || fx.armor) && d <= 5) this.cast(world, me, slot, me.pos);
         else if (fx.moveSpeedPct && d > me.attackRange + 2) this.cast(world, me, slot, me.pos);
         break;
-      case 'blink':
+      case 'strike':
+        if (d - enemy.radius <= def.range && (slot < 3 || def.damage?.missingHp || enemy.hp < enemy.maxHp * 0.5)) {
+          this.cast(world, me, slot, enemy.pos);
+        }
         break;
+      case 'buff':
+        if (fx.stealth && d > me.attackRange + 2) this.cast(world, me, slot, me.pos);
+        break;
+      case 'blink':
+      case 'heal':
+      case 'ward':
+      case 'stasis':
+      case 'cleanse':
+        break;
+    }
+  }
+
+  /** Healers top up wounded allies (and themselves) whenever they can. */
+  private support(world: World, me: Entity): void {
+    for (const slot of SLOTS) {
+      const def = abilityOf(me, slot);
+      if (def.effect.type !== 'heal' || castBlocker(me, slot)) continue;
+      const threshold = slot === 3 ? 0.35 : 0.65;
+      const radius = def.effect.radius;
+      const wounded = world.champions().some(
+        (c) => !c.dead && c.team === me.team && dist(c.pos, me.pos) <= radius && c.hp < c.maxHp * threshold,
+      );
+      if (wounded) this.cast(world, me, slot, me.pos);
     }
   }
 
