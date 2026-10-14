@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { type Entity, type EntityId, type Faction, type Team, type World, dist, isStructure, lerp } from '@lol/shared';
 import type { FogOfWar } from './fog';
 import { CHAMPION_MODEL_SPECS, heroModel } from './championModels';
+import { AnimatedCharacter, CHAMPION_CHARACTERS, type CharacterSpec, MINION_CHARACTERS, hasCharacter } from './characters';
 import { TEAM_COLOR, disposeObject, makeGlow, makeGroundRing, mesh, std } from './util';
 
 interface ViewParts {
@@ -13,6 +14,11 @@ interface ViewParts {
   pulse?: THREE.Object3D;
   /** Rotating ornament (tower/nexus crystal). */
   spinner?: THREE.Object3D;
+  /** Rigged, animated model (replaces bobbing/leaning primitives). */
+  character?: AnimatedCharacter;
+  attackClip?: string;
+  castClip?: string;
+  idleClip?: string;
 }
 
 /** Visual representation of one simulation entity. */
@@ -40,6 +46,10 @@ export class EntityView {
     root: THREE.Group;
   } | null = null;
   private stealthed = false;
+  private readonly character?: AnimatedCharacter;
+  private readonly attackClip: string;
+  private readonly castClip: string;
+  private readonly idleClip: string;
   /** Interpolated ground position for overlays. */
   readonly renderPos = new THREE.Vector3();
   dying = false;
@@ -59,6 +69,10 @@ export class EntityView {
     this.height = parts.height;
     this.pulse = parts.pulse;
     this.spinner = parts.spinner;
+    this.character = parts.character;
+    this.attackClip = parts.attackClip ?? '1H_Melee_Attack_Chop';
+    this.castClip = parts.castClip ?? 'Spellcast_Shoot';
+    this.idleClip = parts.idleClip ?? 'Idle';
     this.root.traverse((o) => {
       const mat = (o as THREE.Mesh).material;
       if (mat instanceof THREE.MeshStandardMaterial) this.materials.push(mat);
@@ -71,6 +85,29 @@ export class EntityView {
 
   attack(): void {
     this.attackAnim = 1;
+    this.character?.playOnce(this.attackClip, 1.5);
+  }
+
+  cast(): void {
+    this.attackAnim = 1;
+    this.character?.playOnce(this.castClip, 1.6);
+  }
+
+  /** Picks the looping animation for the unit's current state. */
+  private animate(e: Entity, moving: boolean, dt: number): void {
+    const ch = this.character!;
+    if (e.dead) {
+      if (!ch.dead) ch.die();
+    } else {
+      if (ch.dead) ch.revive();
+      const stunned = e.statuses.some((st) => st.type === 'stun' || st.type === 'stasis');
+      if (e.champion?.dash) ch.loop('Dodge_Forward', 1.6);
+      else if (e.champion && e.champion.recallTimer > 0) ch.loop('Spellcasting');
+      else if (stunned) ch.loop('Hit_A', 0.5);
+      else if (moving) ch.loop('Running_A', Math.max(0.7, e.moveSpeed / 5.5));
+      else ch.loop(this.idleClip);
+    }
+    ch.update(dt);
   }
 
   /** Called each frame with the interpolated entity state. */
@@ -86,11 +123,15 @@ export class EntityView {
       let diff = e.facing - this.body.rotation.y;
       diff = Math.atan2(Math.sin(diff), Math.cos(diff));
       this.body.rotation.y += diff * Math.min(1, dt * 14);
-      if (moving) this.walkPhase += dt * 11;
-      const bob = moving ? Math.abs(Math.sin(this.walkPhase)) * 0.18 : 0;
-      this.body.position.y = bob;
-      // Lean into attacks.
-      this.body.rotation.x = this.attackAnim * 0.35;
+      if (this.character) {
+        this.animate(e, moving, dt);
+      } else {
+        if (moving) this.walkPhase += dt * 11;
+        const bob = moving ? Math.abs(Math.sin(this.walkPhase)) * 0.18 : 0;
+        this.body.position.y = bob;
+        // Lean into attacks.
+        this.body.rotation.x = this.attackAnim * 0.35;
+      }
     }
 
     if (this.spinner) {
@@ -123,7 +164,8 @@ export class EntityView {
       this.root.visible = !e.dead || this.deathTime < 2.5;
       if (e.dead) {
         this.deathTime += dt;
-        this.body.rotation.z = Math.min(Math.PI / 2, this.deathTime * 4);
+        // Animated models play their own death; primitives just tip over.
+        if (!this.character) this.body.rotation.z = Math.min(Math.PI / 2, this.deathTime * 4);
       } else {
         this.deathTime = 0;
         this.body.rotation.z = 0;
@@ -246,7 +288,13 @@ export class EntityView {
   animateDeath(dt: number): void {
     this.deathTime += dt;
     const t = this.deathTime;
-    if (this.kind === 'minion' || this.kind === 'monster' || this.kind === 'ward') {
+    if (this.character) {
+      // Play the death animation, then sink into the ground.
+      if (!this.character.dead) this.character.die();
+      this.character.update(dt);
+      if (t > 1.2) this.root.position.y = -(t - 1.2) * 1.5;
+      if (t > 2.2) this.done = true;
+    } else if (this.kind === 'minion' || this.kind === 'monster' || this.kind === 'ward') {
       this.root.position.y = -t * 1.5;
       this.body.rotation.z = Math.min(1.4, t * 5);
       if (t > 0.8) this.done = true;
@@ -688,15 +736,44 @@ function wardModel(team: Team): ViewParts {
   return { root, body, height: 1.8, spinner: eye };
 }
 
+/** A rigged KayKit character standing on a team/selection ring. */
+function characterModel(spec: CharacterSpec, ringColor: number, ringOpacity: number, ringRadius: number): ViewParts {
+  const root = new THREE.Group();
+  const body = new THREE.Group();
+  root.add(body);
+  const character = new AnimatedCharacter(spec);
+  body.add(character.object);
+  let pulse: THREE.Object3D | undefined;
+  if (spec.handGlow !== undefined && character.handSlot) {
+    // A glowing focus in the casting hand (scaled down to undo the model's scale).
+    const glow = new THREE.Group();
+    glow.add(mesh(new THREE.SphereGeometry(0.12, 10, 8), std(spec.handGlow, { emissive: spec.handGlow, emissiveIntensity: 2 })), makeGlow(spec.handGlow, 1.2, 0.8));
+    glow.scale.setScalar(1 / character.object.scale.x);
+    character.handSlot.add(glow);
+    pulse = glow;
+  }
+  root.add(makeGroundRing(ringRadius, ringRadius + 0.25, ringColor, ringOpacity));
+  character.loop(spec.idle);
+  return { root, body, height: spec.height + 0.6, pulse, character, attackClip: spec.attack, castClip: spec.cast, idleClip: spec.idle };
+}
+
 export function createView(e: Entity, isPlayer: boolean): EntityView {
   let parts: ViewParts;
   const team = e.team as Team;
+  const champSpec = e.champion ? CHAMPION_CHARACTERS[e.champion.defId] : undefined;
+  const minionSpec = e.minion ? MINION_CHARACTERS[e.minion.type] : undefined;
   switch (e.kind) {
     case 'champion':
-      parts = championModel(e.champion?.defId ?? 'arcanist', team, isPlayer);
+      parts =
+        champSpec && hasCharacter(champSpec.model)
+          ? characterModel(champSpec, isPlayer ? 0x4cff7a : TEAM_COLOR[team], isPlayer ? 0.9 : 0.6, 1.0)
+          : championModel(e.champion?.defId ?? 'arcanist', team, isPlayer);
       break;
     case 'minion':
-      parts = minionModel(team, e.minion?.type ?? 'melee');
+      parts =
+        minionSpec && hasCharacter(minionSpec.model)
+          ? characterModel({ ...minionSpec, teamColor: TEAM_COLOR[team] }, TEAM_COLOR[team], 0.35, e.radius + 0.1)
+          : minionModel(team, e.minion?.type ?? 'melee');
       break;
     case 'tower':
       parts = towerModel(team);

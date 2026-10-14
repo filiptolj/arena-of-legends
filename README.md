@@ -116,6 +116,12 @@ replaces the unit id on every command with the sender's champion.
 - [x] Phase 3: authoritative Node + WebSocket server, rooms and lobby, fog-filtered snapshots, bot takeover on disconnect
 - [ ] Next: client-side prediction, delta-compressed snapshots, reconnect, ranked matchmaking
 
+## Credits
+
+Champion and minion models are from the KayKit Adventurers and Skeletons character packs by
+[Kay Lousberg](https://www.kaylousberg.com) (CC0). Each champion uses a base model with its own weapons,
+hue-shifted colors and animations. See `client/public/models/CREDITS.txt`.
+
 ## License
 
 [MIT](LICENSE). This is a fan-made project and is not affiliated with or endorsed by Riot Games.

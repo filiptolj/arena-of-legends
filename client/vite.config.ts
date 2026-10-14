@@ -7,6 +7,6 @@ export default defineConfig({
     // Multiplayer: forward WebSocket traffic to the game server (npm run dev:server).
     proxy: { '/ws': { target: 'ws://localhost:3001', ws: true } },
   },
-  // three.js alone is ~500 kB minified.
-  build: { chunkSizeWarningLimit: 800 },
+  // three.js plus its glTF loader and post-processing is ~900 kB minified.
+  build: { chunkSizeWarningLimit: 1000 },
 });

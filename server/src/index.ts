@@ -18,6 +18,8 @@ const MIME: Record<string, string> = {
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.json': 'application/json',
+  '.glb': 'model/gltf-binary',
+  '.txt': 'text/plain; charset=utf-8',
 };
 
 /** Serves the built client (if present) so one process hosts the whole game. */

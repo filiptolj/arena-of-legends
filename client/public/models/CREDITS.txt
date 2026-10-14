@@ -1,0 +1,5 @@
+Character models: KayKit Adventurers Character Pack 1.0 and KayKit Skeletons Character Pack 1.0
+by Kay Lousberg (www.kaylousberg.com) - https://github.com/KayKit-Game-Assets
+License: Creative Commons Zero (CC0) - http://creativecommons.org/publicdomain/zero/1.0/
+
+The .glb files here were trimmed to the animations the game uses (glTF-Transform: prune, dedup, resample).

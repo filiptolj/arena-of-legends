@@ -1,4 +1,8 @@
 import * as THREE from 'three';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { type EntityId, type GameEvent, ITEMS, type Team, type Vec2, type World, brushAt, dist } from '@lol/shared';
 import { CameraController } from './camera';
 import { InputController } from './input';
@@ -16,6 +20,9 @@ import { Shop } from './ui/shop';
 /** Client game: renders a Session's world with interpolation and turns input into commands. */
 export class Game {
   private readonly renderer: THREE.WebGLRenderer;
+  private readonly composer: EffectComposer;
+  private readonly bloom: UnrealBloomPass;
+  private readonly rimLight: THREE.DirectionalLight;
   private readonly scene = new THREE.Scene();
   private readonly sun: THREE.DirectionalLight;
   private readonly cam: CameraController;
@@ -65,11 +72,22 @@ export class Game {
     sc.far = 200;
     this.sun.shadow.bias = -0.0005;
     this.scene.add(this.sun, this.sun.target);
+    // A cool back light from the far side of the map outlines characters, League-style.
+    this.rimLight = new THREE.DirectionalLight(0x9fc8ff, 1.4);
+    this.scene.add(this.rimLight, this.rimLight.target);
+
+    // Bloom makes glowing things (projectiles, crystals, auras) actually glow.
+    this.composer = new EffectComposer(this.renderer);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.55, 0.45, 0.82);
+
 
     this.mapView = buildMap(this.scene, this.fog);
 
 
     this.cam = new CameraController(window.innerWidth / window.innerHeight);
+    this.composer.addPass(new RenderPass(this.scene, this.cam.camera));
+    this.composer.addPass(this.bloom);
+    this.composer.addPass(new OutputPass());
     this.cam.jumpTo(this.world.get(this.playerId)!.pos);
     this.views = new EntityViewManager(this.scene, this.playerId, this.team, this.fog);
     this.effects = new Effects(this.scene);
@@ -113,6 +131,7 @@ export class Game {
     const w = window.innerWidth;
     const h = window.innerHeight;
     this.renderer.setSize(w, h, false);
+    this.composer.setSize(w, h);
     this.cam.camera.aspect = w / h;
     this.cam.camera.updateProjectionMatrix();
   }
@@ -158,7 +177,9 @@ export class Game {
     this.sun.position.set(f.x + 40, 70, f.z + 25);
     this.sun.target.position.set(f.x, 0, f.z);
 
-    this.renderer.render(this.scene, this.cam.camera);
+    this.rimLight.position.set(f.x - 20, 45, f.z - 60);
+    this.rimLight.target.position.set(f.x, 0, f.z);
+    this.composer.render();
     this.overlay.update(this.world, this.views, dt);
     this.hud.update(this.world, dt);
     this.shop.update();
@@ -190,6 +211,9 @@ export class Game {
     switch (ev.type) {
       case 'attack':
         this.views.get(ev.sourceId)?.attack();
+        break;
+      case 'cast':
+        this.views.get(ev.id)?.cast();
         break;
       case 'damage': {
         this.views.get(ev.targetId)?.hit();
