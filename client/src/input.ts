@@ -94,6 +94,9 @@ export class InputController {
       if (!view || !view.seen) continue;
       a.copy(view.renderPos).project(this.cam.camera);
       b.copy(view.renderPos).setY(view.height * 0.8).project(this.cam.camera);
+      // Points behind the camera project mirrored onto the screen and can "hit" clicks far
+      // from the unit; only consider units whose feet and head are both in front of it.
+      if (Math.abs(a.z) > 1 || Math.abs(b.z) > 1) continue;
       const ax = (a.x * 0.5 + 0.5) * r.width;
       const ay = (-a.y * 0.5 + 0.5) * r.height;
       const bx = (b.x * 0.5 + 0.5) * r.width;
