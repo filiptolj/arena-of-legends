@@ -13,10 +13,11 @@ const run = (world: World, seconds: number, onEvent?: (e: GameEvent) => void) =>
 const solo: ChampionSpawn[] = [{ team: 'blue', defId: 'arcanist', name: 'P', lane: 'mid', isBot: false }];
 
 describe('World', () => {
-  it('spawns 12 towers and 2 nexuses', () => {
+  it('builds a League-style base: 11 towers, 3 inhibitors and a nexus per team', () => {
     const w = new World({ champions: [] });
     const kinds = [...w.entities.values()].map((e) => e.kind);
-    expect(kinds.filter((k) => k === 'tower')).toHaveLength(12);
+    expect(kinds.filter((k) => k === 'tower')).toHaveLength(22);
+    expect(kinds.filter((k) => k === 'inhibitor')).toHaveLength(6);
     expect(kinds.filter((k) => k === 'nexus')).toHaveLength(2);
   });
 
@@ -109,6 +110,8 @@ describe('World', () => {
     me.pos = { x: 100, y: 100 };
     dummy.pos = { x: 103, y: 100 };
     me.champion!.level = 6;
+    // Let vision catch up with the teleport so targeted abilities can find the dummy.
+    run(w, 0.1);
     let casts = 0;
     let damage = 0;
     for (const slot of [0, 1, 2, 3] as AbilitySlot[]) {

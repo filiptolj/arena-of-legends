@@ -2,16 +2,19 @@ import type { LaneId, Team } from './map.js';
 import type { Vec2 } from './math.js';
 
 export type EntityId = number;
-export type EntityKind = 'champion' | 'minion' | 'tower' | 'nexus' | 'monster' | 'ward';
+export type EntityKind = 'champion' | 'minion' | 'tower' | 'inhibitor' | 'nexus' | 'monster' | 'ward';
 /** Jungle monsters belong to neither team. */
 export type Faction = Team | 'neutral';
 export type Blessing = 'crimson' | 'azure';
 export type DamageKind = 'physical' | 'magic' | 'true';
 export type AbilitySlot = 0 | 1 | 2 | 3;
-export type MinionType = 'melee' | 'caster';
+export type MinionType = 'melee' | 'caster' | 'super';
 export type ItemId = string;
 
 export const INVENTORY_SIZE = 6;
+
+/** Towers, inhibitors and nexuses: immobile, always visible, immune to crowd control. */
+export const isStructure = (e: { kind: EntityKind }): boolean => e.kind === 'tower' || e.kind === 'inhibitor' || e.kind === 'nexus';
 
 export type Order =
   | { type: 'idle' }
@@ -98,6 +101,8 @@ export interface WardState {
 export interface StructureState {
   lane?: LaneId;
   tier?: number;
+  /** Inhibitors rebuild themselves; world time when a destroyed one comes back. */
+  respawnAt?: number;
 }
 
 export interface Entity {
@@ -237,5 +242,6 @@ export type GameEvent =
   | { type: 'monsterSlain'; campId: string; monsterType: string; killerId: EntityId | null; team: Team | null; epic: boolean }
   | { type: 'blessingGained'; id: EntityId; blessing: Blessing }
   | { type: 'structureDestroyed'; id: EntityId; kind: EntityKind; team: Team }
+  | { type: 'inhibitorRespawned'; id: EntityId; team: Team }
   | { type: 'waveSpawned' }
   | { type: 'gameOver'; winner: Team };

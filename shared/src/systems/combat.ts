@@ -2,6 +2,8 @@ import {
   CHAMPION_AGGRO_TIME,
   CHAMPION_KILL_GOLD,
   DRAKE_TEAM_GOLD,
+  INHIBITOR_GOLD,
+  INHIBITOR_RESPAWN,
   MONSTERS,
   REVEAL_TIME,
   WARD_GOLD,
@@ -14,11 +16,12 @@ import {
   respawnTime,
   xpToNext,
 } from '../constants.js';
+import { getAbility } from '../champions.js';
 import { recomputeChampionStats } from '../items.js';
 import { BLESSING_DURATION, CAMP_SPECS, type MonsterType } from '../constants.js';
 import { MAP, type Team, otherTeam } from '../map.js';
 import { dist, distToSegment, moveToward } from '../math.js';
-import type { DamageKind, Entity, EntityId, ProjectileVisual } from '../types.js';
+import { type DamageKind, type Entity, type EntityId, type ProjectileVisual, isStructure } from '../types.js';
 import type { World } from '../world.js';
 import { clearPath } from './movement.js';
 import { onMonsterDamaged } from './jungle.js';
@@ -31,21 +34,28 @@ export function inAttackRange(a: Entity, b: Entity, extra = 0): boolean {
 }
 
 /** Inner towers are protected by outer towers; the nexus by all inner towers. */
+/**
+ * League's destruction order: each lane's towers fall outer → inner → inhibitor turret,
+ * then the inhibitor; nexus turrets need an inhibitor down; the nexus needs both nexus turrets down.
+ */
 export function isInvulnerable(world: World, e: Entity): boolean {
   if (inStasis(e)) return true;
-  if (e.kind === 'tower' && e.structure?.tier === 2) {
-    for (const o of world.entities.values()) {
-      if (o.kind === 'tower' && !o.dead && o.team === e.team && o.structure?.lane === e.structure.lane && o.structure?.tier === 1) {
-        return true;
-      }
-    }
+  if (!isStructure(e)) return false;
+  const tier = e.structure?.tier ?? 0;
+  const lane = e.structure?.lane;
+  const allies = [...world.entities.values()].filter((o) => !o.dead && o.team === e.team && o.structure);
+  if (e.kind === 'tower' && lane) {
+    return allies.some((o) => o.kind === 'tower' && o.structure!.lane === lane && (o.structure!.tier ?? 0) < tier);
+  }
+  if (e.kind === 'inhibitor') {
+    return allies.some((o) => o.kind === 'tower' && o.structure!.lane === lane);
+  }
+  if (e.kind === 'tower' && tier === 4) {
+    // Dead inhibitors stay in the world (they rebuild), so look for one that's down.
+    return ![...world.entities.values()].some((o) => o.kind === 'inhibitor' && o.team === e.team && o.dead);
   }
   if (e.kind === 'nexus') {
-    let innerAlive = 0;
-    for (const o of world.entities.values()) {
-      if (o.kind === 'tower' && !o.dead && o.team === e.team && o.structure?.tier === 2) innerAlive++;
-    }
-    return innerAlive === 3;
+    return allies.some((o) => o.kind === 'tower' && o.structure!.tier === 4);
   }
   return false;
 }
@@ -114,7 +124,7 @@ export function applyDamage(world: World, sourceId: EntityId, target: Entity, ra
   }
   if (target.monster && source) onMonsterDamaged(world, target, source);
   // Crimson blessing: attacks burn and slow.
-  if (isAttack && source && hasBlessing(source, 'crimson') && !target.dead && target.kind !== 'tower' && target.kind !== 'nexus') {
+  if (isAttack && source && hasBlessing(source, 'crimson') && !target.dead && !isStructure(target)) {
     target.hp -= crimsonBurn(source.champion?.level ?? 1);
     applyStatus(target, { type: 'slow', amount: 0.15, duration: 1 });
   }
@@ -183,6 +193,13 @@ function handleDeath(world: World, victim: Entity, killer: Entity | undefined): 
     case 'ward':
       if (killer?.champion) addGold(world, killer, WARD_GOLD, victim);
       break;
+    case 'inhibitor': {
+      world.nav.unblockCircle(victim.pos, victim.radius);
+      victim.structure!.respawnAt = world.time + INHIBITOR_RESPAWN;
+      for (const c of world.champions()) if (c.team === enemyTeam) addGold(world, c, INHIBITOR_GOLD, c);
+      world.emit({ type: 'structureDestroyed', id: victim.id, kind: victim.kind, team: victim.team as Team });
+      break;
+    }
     case 'nexus': {
       world.emit({ type: 'structureDestroyed', id: victim.id, kind: victim.kind, team: victim.team });
       world.winner = enemyTeam;
@@ -273,8 +290,10 @@ export function updateProjectiles(world: World, dt: number): void {
       hits.sort((a, b) => dist(from, a.pos) - dist(from, b.pos));
       // Non-piercing skillshots stop at the first unit hit.
       const struck = p.pierce ? hits : hits.slice(0, 1);
+      // Execute-style skillshots add a share of the victim's missing health.
+      const missingHp = p.abilityId ? (getAbility(p.abilityId)?.damage?.missingHp ?? 0) : 0;
       for (const hit of struck) {
-        applyDamage(world, p.sourceId, hit, p.damage, p.damageKind);
+        applyDamage(world, p.sourceId, hit, p.damage + missingHp * Math.max(0, hit.maxHp - hit.hp), p.damageKind);
         // Pulls drag toward the caster; knockbacks push away from the projectile.
         const origin = p.status?.type === 'pull' ? (world.get(p.sourceId)?.pos ?? p.pos) : p.pos;
         if (p.status) applyStatus(hit, p.status, { world, origin });

@@ -1126,7 +1126,7 @@ button:disabled {
 
 /* 14+ champions: a denser champion select grid. */
 .champ-grid {
-  grid-template-columns: repeat(4, 104px);
+  grid-template-columns: repeat(5, 100px);
   max-height: 62vh;
   overflow-y: auto;
   padding: 4px;

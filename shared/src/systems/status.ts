@@ -1,5 +1,5 @@
 import { type Vec2, dist, moveToward, normalize, sub } from '../math.js';
-import type { Blessing, Entity, OnHitStatus } from '../types.js';
+import { type Blessing, type Entity, type OnHitStatus, isStructure } from '../types.js';
 import type { World } from '../world.js';
 
 const MAX_ATTACK_SPEED = 2.5;
@@ -60,7 +60,7 @@ export interface StatusContext {
 }
 
 export function applyStatus(e: Entity, st: OnHitStatus, ctx?: StatusContext): void {
-  if (e.dead || e.kind === 'tower' || e.kind === 'nexus' || e.kind === 'ward' || inStasis(e)) return;
+  if (e.dead || isStructure(e) || e.kind === 'ward' || inStasis(e)) return;
   switch (st.type) {
     case 'stun':
       e.statuses.push({ type: 'stun', remaining: st.duration });

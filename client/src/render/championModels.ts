@@ -5,8 +5,8 @@ import { TEAM_COLOR, makeGlow, mesh, std } from './util';
 /** A champion described as parts: body type, head and weapon, plus colors. */
 export interface HeroSpec {
   build: 'robe' | 'armored' | 'slim' | 'mech' | 'hulking';
-  head: 'hood' | 'helm' | 'crown' | 'hair' | 'horns' | 'visor' | 'rock' | 'hat';
-  weapon: 'greatsword' | 'axe' | 'bow' | 'gun' | 'hookArm' | 'staff' | 'claws' | 'katana' | 'none';
+  head: 'hood' | 'helm' | 'crown' | 'hair' | 'horns' | 'visor' | 'rock' | 'hat' | 'ears';
+  weapon: 'greatsword' | 'axe' | 'bow' | 'gun' | 'hookArm' | 'staff' | 'claws' | 'katana' | 'orb' | 'lantern' | 'none';
   primary: number;
   secondary: number;
   /** Hair, hood or skin color depending on the head. */
@@ -26,6 +26,12 @@ export const CHAMPION_MODEL_SPECS: Record<string, HeroSpec> = {
   stonewall: { build: 'hulking', head: 'rock', weapon: 'none', primary: 0x7a6a5a, secondary: 0xff9a40, headColor: 0x7a6a5a, glow: 0xff9a40, scale: 1.15 },
   volt: { build: 'slim', head: 'hat', weapon: 'gun', primary: 0x6a3aa0, secondary: 0x2a2a3a, headColor: 0x2a2a3a, glow: 0xffe0a0 },
   tempest: { build: 'slim', head: 'hair', weapon: 'katana', primary: 0x3a6a9a, secondary: 0xd8d0c0, headColor: 0x2a2a2a, glow: 0xcfe8ff },
+  kitsu: { build: 'slim', head: 'ears', weapon: 'orb', primary: 0xd04a7a, secondary: 0xffe0f0, headColor: 0x2a1a2a, glow: 0xff7ab8 },
+  lanternkeeper: { build: 'robe', head: 'hood', weapon: 'lantern', primary: 0x1a3a2a, secondary: 0x6aff9a, headColor: 0x14281e, glow: 0x6aff9a },
+  firecracker: { build: 'slim', head: 'hair', weapon: 'gun', primary: 0xd05a9a, secondary: 0x2a2a3a, headColor: 0x3a8aff, glow: 0xff4a8a },
+  pyra: { build: 'robe', head: 'hair', weapon: 'orb', primary: 0x8a2a5a, secondary: 0xffb040, headColor: 0xd03a2a, glow: 0xff7a30, scale: 0.8 },
+  umbra: { build: 'slim', head: 'helm', weapon: 'claws', primary: 0x1a1a1a, secondary: 0xd03a3a, headColor: 0x2a2a2a, glow: 0xff3a3a },
+  dawnshield: { build: 'armored', head: 'crown', weapon: 'greatsword', primary: 0xd0a030, secondary: 0xfff0c0, headColor: 0xd0a030, glow: 0xffd060 },
 };
 
 const SKIN = 0xe8c09a;
@@ -182,6 +188,24 @@ function buildHead(spec: HeroSpec, body: THREE.Group, y: number): number {
       body.add(eyes);
       return y + 0.5;
     }
+    case 'ears': {
+      body.add(mesh(new THREE.SphereGeometry(0.34, 12, 10), std(SKIN), y));
+      body.add(mesh(new THREE.SphereGeometry(0.37, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55), hc, y + 0.02));
+      for (const side of [-1, 1]) {
+        const ear = mesh(new THREE.ConeGeometry(0.13, 0.4, 4), std(spec.primary), y + 0.42);
+        ear.position.x = side * 0.2;
+        ear.rotation.z = -side * 0.25;
+        body.add(ear);
+      }
+      // Tails fanning out behind.
+      for (let i = -2; i <= 2; i++) {
+        const tail = mesh(new THREE.ConeGeometry(0.12, 1.1, 6), std(0xfff4f8), 1.3);
+        tail.position.set(i * 0.15, 1.3, -0.5);
+        tail.rotation.set(-1.0, 0, i * 0.3);
+        body.add(tail);
+      }
+      return y + 0.7;
+    }
     case 'hat': {
       body.add(mesh(new THREE.SphereGeometry(0.33, 12, 10), skin, y));
       body.add(mesh(new THREE.CylinderGeometry(0.62, 0.62, 0.06, 16), hc, y + 0.28));
@@ -266,6 +290,21 @@ function buildWeapon(spec: HeroSpec, body: THREE.Group): THREE.Object3D | undefi
       blade.rotation.x = 0.6;
       hand.add(blade, mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.04, 10), std(0xb08a3a), 0.05));
       tip.position.set(0, 1.4, 0.8);
+      break;
+    }
+    case 'orb': {
+      // A spirit orb hovering in front of the open hand.
+      tip.position.set(0, 0.2, 0.5);
+      tip.add(mesh(new THREE.SphereGeometry(0.22, 12, 10), std(spec.glow, { emissive: spec.glow, emissiveIntensity: 1.6 })));
+      break;
+    }
+    case 'lantern': {
+      hand.add(mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.8, 4), std(0x444444), -0.3));
+      tip.position.set(0, -0.85, 0);
+      tip.add(
+        mesh(new THREE.BoxGeometry(0.4, 0.5, 0.4), std(0x2a2a2a, { metalness: 0.6, transparent: true, opacity: 0.7 })),
+        mesh(new THREE.OctahedronGeometry(0.16), std(spec.glow, { emissive: spec.glow, emissiveIntensity: 1.8 })),
+      );
       break;
     }
     case 'none':

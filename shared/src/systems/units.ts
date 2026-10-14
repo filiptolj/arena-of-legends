@@ -35,6 +35,13 @@ export function spawnWave(world: World): void {
           spawnMinion(world, team, lane, type, pos, wps);
         }
       }
+      // A destroyed enemy inhibitor in this lane adds a super minion to the wave.
+      const enemyInhibDown = [...world.entities.values()].some(
+        (e) => e.kind === 'inhibitor' && e.dead && e.team !== team && e.structure?.lane === lane,
+      );
+      if (enemyInhibDown) {
+        spawnMinion(world, team, lane, 'super', { x: wps[0].x + dir.x * 10.5, y: wps[0].y + dir.y * 10.5 }, wps);
+      }
     }
   }
   world.emit({ type: 'waveSpawned' });

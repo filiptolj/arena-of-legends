@@ -8,6 +8,7 @@ import type {
   EntityKind,
   Faction,
   GameEvent,
+  MinionType,
   Projectile,
   StatusEffect,
   Zone,
@@ -69,7 +70,7 @@ export interface EntitySpawn {
   sightRange: number;
   ranged: boolean;
   attackRange: number;
-  minion?: { type: 'melee' | 'caster'; lane: LaneId };
+  minion?: { type: MinionType; lane: LaneId };
   monster?: { type: string; campId: string; home: Vec2 };
   structure?: { lane?: LaneId; tier?: number };
   ward?: { ownerId: EntityId; expiresAt: number };

@@ -107,6 +107,11 @@ export class Minimap {
         g.fillStyle = '#ffe9a8';
         g.fill();
         g.stroke();
+      } else if (e.kind === 'inhibitor') {
+        g.beginPath();
+        g.arc(x, y, 7, 0, Math.PI * 2);
+        g.fill();
+        g.stroke();
       } else if (e.kind === 'tower') {
         g.beginPath();
         g.rect(x - 6, y - 6, 12, 12);

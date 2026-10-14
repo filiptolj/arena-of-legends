@@ -7,7 +7,7 @@ import { ITEMS } from '../items.js';
 import { abilityOf, castBlocker, damageAgainst, itemUseBlocker } from '../systems/abilities.js';
 import { canTarget } from '../systems/combat.js';
 import { isVisibleTo } from '../systems/vision.js';
-import type { AbilitySlot, Entity, EntityId } from '../types.js';
+import { type AbilitySlot, type Entity, type EntityId, isStructure } from '../types.js';
 import type { World } from '../world.js';
 
 const THINK_INTERVAL = 0.25;
@@ -270,7 +270,7 @@ export class BotController {
 
   private siege(world: World, me: Entity): boolean {
     for (const s of world.entities.values()) {
-      if ((s.kind !== 'tower' && s.kind !== 'nexus') || !canTarget(world, me, s)) continue;
+      if (!isStructure(s) || !canTarget(world, me, s)) continue;
       if (dist(me.pos, s.pos) > 16) continue;
       if (s.kind === 'tower' && !this.towerBusy(world, s)) continue;
       this.attack(world, me, s);

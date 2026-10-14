@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { type GameEvent, type Projectile, type ProjectileVisual, type Vec2, type World, getAbility, lerp } from '@lol/shared';
+import { type GameEvent, type Projectile, type ProjectileVisual, type Vec2, type World, getAbility, isStructure, lerp } from '@lol/shared';
 import { TEAM_COLOR, disposeObject, makeGlow, makeGroundRing } from './util';
 
 interface Particle {
@@ -237,7 +237,7 @@ export class Effects {
       }
       case 'death': {
         const e = world.get(ev.id);
-        if (e && (e.kind === 'tower' || e.kind === 'nexus')) {
+        if (e && isStructure(e)) {
           this.burst(ev.pos, 6, 0xffa040, 22, 1);
           this.sparks(ev.pos, 6, 0xffc070, 50, 20, 1.4);
           this.shake = 1.2;

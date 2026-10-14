@@ -2,7 +2,9 @@ import { CHAMPIONS, type ChampionDef } from './champions.js';
 import {
   DT,
   FIRST_WAVE_AT,
+  INHIBITOR_STATS,
   NEXUS_STATS,
+  NEXUS_TURRET_STATS,
   RECALL_TIME,
   SIGHT_RANGE,
   STARTING_GOLD,
@@ -56,7 +58,11 @@ export class World {
 
   constructor(opts: WorldOptions) {
     for (const s of MAP.structures) {
-      const stats = s.kind === 'tower' ? TOWER_STATS : NEXUS_STATS;
+      const stats =
+        s.kind === 'nexus' ? NEXUS_STATS
+        : s.kind === 'inhibitor' ? INHIBITOR_STATS
+        : s.tier === 4 ? NEXUS_TURRET_STATS
+        : TOWER_STATS;
       const e = this.createEntity(s.kind, s.team, s.pos, stats);
       e.structure = { lane: s.lane, tier: s.tier };
       this.nav.blockCircle(s.pos, stats.radius);
@@ -210,6 +216,9 @@ export class World {
         case 'ward':
           if (e.ward && this.time >= e.ward.expiresAt) e.dead = true;
           break;
+        case 'inhibitor':
+          if (e.dead && e.structure?.respawnAt !== undefined && this.time >= e.structure.respawnAt) this.rebuildInhibitor(e);
+          break;
         case 'nexus':
           break;
       }
@@ -219,9 +228,9 @@ export class World {
     updateProjectiles(this, DT);
     updateZones(this, DT);
 
-    // Dead minions and structures leave the world; champions stay to respawn.
+    // Dead units leave the world; champions and inhibitors stay to come back.
     for (const [id, e] of this.entities) {
-      if (e.dead && e.kind !== 'champion') this.entities.delete(id);
+      if (e.dead && e.kind !== 'champion' && e.kind !== 'inhibitor') this.entities.delete(id);
     }
     if (this.tickCount % VISION_INTERVAL_TICKS === 0) this.vision = computeVision(this);
   }
@@ -288,6 +297,14 @@ export class World {
           break;
       }
     }
+  }
+
+  private rebuildInhibitor(e: Entity): void {
+    e.dead = false;
+    e.hp = e.maxHp;
+    e.structure!.respawnAt = undefined;
+    this.nav.blockCircle(e.pos, e.radius);
+    this.emit({ type: 'inhibitorRespawned', id: e.id, team: e.team as Team });
   }
 
   /** Hands a champion to (or takes it back from) the bot AI, e.g. when a player disconnects. */

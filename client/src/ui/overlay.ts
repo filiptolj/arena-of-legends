@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CHAMPIONS, type DamageKind, type EntityId, MONSTERS, type MonsterType, type Team, type Vec2, type World, isInvulnerable } from '@lol/shared';
+import { CHAMPIONS, type DamageKind, type EntityId, MONSTERS, type MonsterType, type Team, type Vec2, type World, isInvulnerable, isStructure } from '@lol/shared';
 import type { EntityViewManager } from '../render/entityViews';
 
 interface Bar {
@@ -47,7 +47,7 @@ export class WorldOverlay {
     const el = document.createElement('div');
     const group =
       e.kind === 'champion' ? 'champion'
-      : e.kind === 'tower' || e.kind === 'nexus' ? 'structure'
+      : isStructure(e) ? 'structure'
       : e.kind === 'monster' ? (e.radius >= 1.4 ? 'monster big' : 'monster')
       : 'minion';
     el.className = `hb ${group} ${e.team === 'neutral' ? 'neutral' : e.team === this.playerTeam ? 'ally' : 'enemy'}`;
@@ -118,7 +118,7 @@ export class WorldOverlay {
       }
       if (bar.mana) bar.mana.style.width = `${(e.mana / Math.max(1, e.maxMana)) * 100}%`;
       if (bar.level && e.champion) bar.level.textContent = String(e.champion.level);
-      if (e.kind === 'tower' || e.kind === 'nexus') bar.el.classList.toggle('invulnerable', isInvulnerable(world, e));
+      if (isStructure(e)) bar.el.classList.toggle('invulnerable', isInvulnerable(world, e));
     }
     for (const [id, bar] of this.bars) {
       if (!views.views.has(id)) {

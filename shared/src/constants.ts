@@ -41,7 +41,7 @@ export interface UnitStats {
   ranged: boolean;
 }
 
-export const MINION_STATS: Record<'melee' | 'caster', UnitStats & { gold: number; xp: number }> = {
+export const MINION_STATS: Record<'melee' | 'caster' | 'super', UnitStats & { gold: number; xp: number }> = {
   melee: {
     maxHp: 480, maxMana: 0, hpRegen: 0, manaRegen: 0, armor: 0, magicResist: 0,
     attackDamage: 12, attackRange: 1.2, attackSpeed: 1.25, moveSpeed: 5.2, radius: 0.6, ranged: false,
@@ -52,12 +52,28 @@ export const MINION_STATS: Record<'melee' | 'caster', UnitStats & { gold: number
     attackDamage: 23, attackRange: 6, attackSpeed: 0.67, moveSpeed: 5.2, radius: 0.5, ranged: true,
     gold: 14, xp: 30,
   },
+  /** Spawned in a lane whose enemy inhibitor is down. */
+  super: {
+    maxHp: 1600, maxMana: 0, hpRegen: 0, manaRegen: 0, armor: 30, magicResist: 0,
+    attackDamage: 110, attackRange: 1.6, attackSpeed: 0.85, moveSpeed: 5.2, radius: 0.9, ranged: false,
+    gold: 60, xp: 97,
+  },
 };
 
 export const TOWER_STATS: UnitStats = {
   maxHp: 3000, maxMana: 0, hpRegen: 0, manaRegen: 0, armor: 40, magicResist: 40,
   attackDamage: 150, attackRange: 10, attackSpeed: 0.83, moveSpeed: 0, radius: 2, ranged: true,
 };
+
+/** Nexus turrets are a little sturdier than lane towers. */
+export const NEXUS_TURRET_STATS: UnitStats = { ...TOWER_STATS, maxHp: 3500 };
+
+export const INHIBITOR_STATS: UnitStats = {
+  maxHp: 4000, maxMana: 0, hpRegen: 0, manaRegen: 0, armor: 20, magicResist: 20,
+  attackDamage: 0, attackRange: 0, attackSpeed: 0, moveSpeed: 0, radius: 2.5, ranged: false,
+};
+export const INHIBITOR_RESPAWN = 300;
+export const INHIBITOR_GOLD = 50;
 
 export const NEXUS_STATS: UnitStats = {
   maxHp: 4000, maxMana: 0, hpRegen: 0, manaRegen: 0, armor: 0, magicResist: 0,
@@ -73,10 +89,11 @@ export const PROJECTILE_SPEED = {
 // ---------------------------------------------------------------------------
 // Vision
 
-export const SIGHT_RANGE: Record<'champion' | 'minion' | 'tower' | 'nexus' | 'monster' | 'ward', number> = {
+export const SIGHT_RANGE: Record<'champion' | 'minion' | 'tower' | 'inhibitor' | 'nexus' | 'monster' | 'ward', number> = {
   champion: 14,
   minion: 10,
   tower: 15,
+  inhibitor: 10,
   nexus: 18,
   monster: 0,
   ward: 11,

@@ -1,6 +1,6 @@
 import { MAP, type Team } from '../map.js';
 import { type Vec2, pointInPolygon } from '../math.js';
-import type { Entity, Faction } from '../types.js';
+import { type Entity, type Faction, isStructure } from '../types.js';
 import type { World } from '../world.js';
 
 const brushBounds = MAP.brushes.map((poly) => ({
@@ -52,7 +52,7 @@ export function computeVision(world: World): Record<Team, Set<number>> {
     const seen = out[team];
     for (const e of world.entities.values()) {
       if (e.dead) continue;
-      if (e.team === team || e.kind === 'tower' || e.kind === 'nexus') {
+      if (e.team === team || isStructure(e)) {
         seen.add(e.id);
         continue;
       }

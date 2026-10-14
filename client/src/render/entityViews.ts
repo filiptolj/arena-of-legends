@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { type Entity, type EntityId, type Faction, type Team, type World, dist, lerp } from '@lol/shared';
+import { type Entity, type EntityId, type Faction, type Team, type World, dist, isStructure, lerp } from '@lol/shared';
 import type { FogOfWar } from './fog';
 import { CHAMPION_MODEL_SPECS, heroModel } from './championModels';
 import { TEAM_COLOR, disposeObject, makeGlow, makeGroundRing, mesh, std } from './util';
@@ -96,6 +96,8 @@ export class EntityView {
     if (this.spinner) {
       this.spinner.rotation.y = time * 0.8;
       this.spinner.position.y = this.spinner.userData.baseY + Math.sin(time * 2) * 0.25;
+      // A destroyed inhibitor stays as an empty pedestal until it rebuilds.
+      if (e.kind === 'inhibitor') this.spinner.visible = !e.dead;
     }
     if (this.pulse) this.pulse.scale.setScalar(1 + this.attackAnim * 0.8);
 
@@ -248,7 +250,7 @@ export class EntityView {
       this.root.position.y = -t * 1.5;
       this.body.rotation.z = Math.min(1.4, t * 5);
       if (t > 0.8) this.done = true;
-    } else if (this.kind === 'tower' || this.kind === 'nexus') {
+    } else if (this.kind === 'tower' || this.kind === 'nexus' || this.kind === 'inhibitor') {
       this.root.position.y = -t * 3;
       this.root.rotation.z = Math.sin(t * 40) * 0.03;
       if (t > 2.5) this.done = true;
@@ -385,12 +387,28 @@ function championModel(defId: string, team: Team, isPlayer: boolean): ViewParts 
   return { root, body, height: extra.height ?? 4, pulse: extra.pulse };
 }
 
-function minionModel(team: Team, type: 'melee' | 'caster'): ViewParts {
+function minionModel(team: Team, type: 'melee' | 'caster' | 'super'): ViewParts {
   const root = new THREE.Group();
   const body = new THREE.Group();
   root.add(body);
   const tc = TEAM_COLOR[team];
   const dark = new THREE.Color(tc).multiplyScalar(0.55).getHex();
+
+  if (type === 'super') {
+    // A hulking armored brute with glowing horns.
+    body.add(mesh(new THREE.BoxGeometry(1.5, 1.4, 1.1), std(dark), 1.1));
+    body.add(mesh(new THREE.BoxGeometry(1.0, 0.8, 0.8), std(tc), 2.1));
+    for (const side of [-1, 1]) {
+      const horn = mesh(new THREE.ConeGeometry(0.14, 0.7, 6), std(tc, { emissive: tc, emissiveIntensity: 1.2 }), 2.75);
+      horn.position.x = side * 0.35;
+      horn.rotation.z = -side * 0.4;
+      body.add(horn);
+      const fist = mesh(new THREE.BoxGeometry(0.5, 0.6, 0.5), std(0x8a8f99, { metalness: 0.7 }), 0.9);
+      fist.position.set(side * 0.95, 0.9, 0.2);
+      body.add(fist);
+    }
+    return { root, body, height: 3.3 };
+  }
 
   if (type === 'melee') {
     body.add(mesh(new THREE.BoxGeometry(0.9, 0.9, 0.7), std(tc), 0.7));
@@ -436,6 +454,30 @@ function towerModel(team: Team): ViewParts {
   body.add(crystal);
   root.traverse((o) => (o.receiveShadow = true));
   return { root, body, height: 10.5, pulse: crystal, spinner: crystal };
+}
+
+function inhibitorModel(team: Team): ViewParts {
+  const root = new THREE.Group();
+  const body = new THREE.Group();
+  root.add(body);
+  const tc = TEAM_COLOR[team];
+  body.add(mesh(new THREE.CylinderGeometry(2.6, 3.0, 0.8, 8), std(0x8f8f88), 0.4));
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    const arch = mesh(new THREE.BoxGeometry(0.5, 3.2, 0.5), std(0xb0ada0), 2.2);
+    arch.position.set(Math.cos(a) * 2.1, 2.2, Math.sin(a) * 2.1);
+    arch.rotation.z = Math.cos(a) * 0.15;
+    arch.rotation.x = -Math.sin(a) * 0.15;
+    body.add(arch);
+  }
+  const crystal = new THREE.Group();
+  crystal.userData.baseY = 2.4;
+  crystal.position.y = 2.4;
+  const ring = mesh(new THREE.TorusGeometry(1.3, 0.25, 8, 24), std(tc, { emissive: tc, emissiveIntensity: 1.1, metalness: 0.4 }));
+  crystal.add(ring, mesh(new THREE.OctahedronGeometry(0.6), std(tc, { emissive: tc, emissiveIntensity: 1.3 })), makeGlow(tc, 5, 0.6));
+  body.add(crystal);
+  root.traverse((o) => (o.receiveShadow = true));
+  return { root, body, height: 5.5, spinner: crystal };
 }
 
 function nexusModel(team: Team): ViewParts {
@@ -659,6 +701,9 @@ export function createView(e: Entity, isPlayer: boolean): EntityView {
     case 'tower':
       parts = towerModel(team);
       break;
+    case 'inhibitor':
+      parts = inhibitorModel(team);
+      break;
     case 'nexus':
       parts = nexusModel(team);
       break;
@@ -694,7 +739,7 @@ export class EntityViewManager {
       if (!view) {
         view = createView(e, e.id === this.playerId);
         // Structures sit in the terrain, so they darken in the fog like it does.
-        if (e.kind === 'tower' || e.kind === 'nexus') this.fog.applyTree(view.root);
+        if (isStructure(e)) this.fog.applyTree(view.root);
         this.views.set(e.id, view);
         this.scene.add(view.root);
       }

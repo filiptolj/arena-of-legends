@@ -40,8 +40,8 @@ const cast = (w: World, e: Entity, slot: AbilitySlot, target = { x: 0, y: 0 }) =
 };
 
 describe('content', () => {
-  it('has at least 14 champions with unique ability ids', () => {
-    expect(CHAMPION_IDS.length).toBeGreaterThanOrEqual(14);
+  it('has at least 20 champions with unique ability ids', () => {
+    expect(CHAMPION_IDS.length).toBeGreaterThanOrEqual(20);
     const ids = CHAMPION_IDS.flatMap((c) => CHAMPIONS[c].abilities.map((a) => a.id));
     expect(new Set(ids).size).toBe(ids.length);
   });
@@ -146,7 +146,8 @@ describe('new mechanics', () => {
 
 describe('every champion as a bot', () => {
   // Three short games cover all champions, so a broken kit shows up as a crash or a stalled bot.
-  const groups = [0, 6, 12].map((start) => Array.from({ length: 6 }, (_, i) => CHAMPION_IDS[(start + i) % CHAMPION_IDS.length]));
+  const starts = Array.from({ length: Math.ceil(CHAMPION_IDS.length / 6) }, (_, i) => i * 6);
+  const groups = starts.map((start) => Array.from({ length: 6 }, (_, i) => CHAMPION_IDS[(start + i) % CHAMPION_IDS.length]));
   it.each(groups.map((g) => [g.join(', '), g]))('plays %s', (_name, group) => {
     const champions: ChampionSpawn[] = (group as string[]).map((defId, i) => ({
       team: i < 3 ? 'blue' : 'red',

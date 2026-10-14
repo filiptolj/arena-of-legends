@@ -49,10 +49,10 @@ Other scripts:
 
 ## Champions
 
-There are 14 champions, several inspired by League archetypes: Arcanist (mage), Ranger (marksman), Warden (tank),
-Shade (assassin), Ironhook (hook tank), Valor (juggernaut with an execute), Sunweaver (light mage),
-Frostbloom (frost archer), Bloodreaver (executioner), Mistweaver (healer), Nightstalker (stealth
-assassin), Stonewall (engage tank), Volt (sniper with traps) and Tempest (dash swordsman).
+There are 20 champions, many inspired by League archetypes: Arcanist, Ranger, Warden, Shade, Ironhook (Blitzcrank),
+Valor (Garen), Sunweaver (Lux), Frostbloom (Ashe), Bloodreaver (Darius), Mistweaver (Soraka),
+Nightstalker (Evelynn), Stonewall (Malphite), Volt (Caitlyn), Tempest (Yasuo), Kitsu (Ahri),
+Lanternkeeper (Thresh), Firecracker (Jinx), Pyra (Annie), Umbra (Zed) and Dawnshield (Leona).
 
 Abilities are data in `shared/src/champions.ts`. Each one uses an effect type: `skillshot` (optionally
 piercing or multi-shot), `blink`, `dash` (optionally backward), `nova`, `zone`, `buff` (shields, haste,
@@ -65,6 +65,13 @@ There are 47 items in `shared/src/items.ts`: basics, a mid tier of epic componen
 Components you already own are discounted from the price, as in LoL. Items give AD, AP,
 attack speed, health, mana, armor, MR, move speed, lifesteal and cooldown reduction (capped at 40%).
 Bots follow each champion's recommended build and recall to shop once they have enough gold.
+
+## Base structures
+
+As in League, each lane has an outer, inner and inhibitor turret, then an inhibitor. Two nexus
+turrets guard the nexus. Structures must fall in order: a lane's towers from outside in, then that
+lane's inhibitor, then the nexus turrets (once any inhibitor is down), then the nexus. A destroyed
+inhibitor makes the enemy team spawn a super minion in that lane every wave, and it rebuilds after 5 minutes.
 
 ## Jungle, vision and actives
 

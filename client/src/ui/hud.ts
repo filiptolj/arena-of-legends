@@ -199,7 +199,7 @@ export class Hud {
     if (!e) return 'Unknown';
     if (e.id === this.playerId) return `<span class="${e.team}">You</span>`;
     if (e.champion) return `<span class="${e.team}">${e.champion.name}</span>`;
-    const label = e.kind === 'minion' ? 'Minions' : e.kind === 'tower' ? 'Tower' : 'Nexus';
+    const label = e.kind === 'minion' ? 'Minions' : e.kind === 'tower' ? 'Tower' : e.kind === 'inhibitor' ? 'Inhibitor' : 'Nexus';
     return `<span class="${e.team}">${label}</span>`;
   }
 
@@ -216,11 +216,17 @@ export class Hud {
         break;
       }
       case 'structureDestroyed':
-        if (ev.kind === 'tower') {
+        if (ev.kind === 'tower' || ev.kind === 'inhibitor') {
           const ours = ev.team === this.playerTeam;
-          this.announce(ours ? 'Your tower has been destroyed' : 'Enemy tower destroyed', ours);
+          const what = ev.kind === 'tower' ? 'tower' : 'inhibitor';
+          this.announce(ours ? `Your ${what} has been destroyed` : `Enemy ${what} destroyed`, ours);
         }
         break;
+      case 'inhibitorRespawned': {
+        const ours = ev.team === this.playerTeam;
+        this.announce(ours ? 'Your inhibitor is respawning' : 'Enemy inhibitor is respawning', !ours);
+        break;
+      }
       case 'waveSpawned':
         if (world.time < 10) this.announce('Minions have spawned!');
         break;
