@@ -1,6 +1,6 @@
 import { type AbilityDef, CHAMPIONS, type DamageSpec, getAbility } from '../champions.js';
 import { AZURE_CDR, SIGHT_RANGE, WARD_LIFETIME } from '../constants.js';
-import { ITEMS } from '../items.js';
+import { ITEMS, spendCharge } from '../items.js';
 import { type Vec2, dist, distToSegment, moveToward, normalize, sub } from '../math.js';
 import type { Team } from '../map.js';
 import type { AbilitySlot, Entity } from '../types.js';
@@ -80,6 +80,8 @@ export function itemUseBlocker(e: Entity, slot: number): ItemUseFailure | null {
   if (!c || e.dead) return 'dead';
   const id = c.items[slot];
   if (!id) return 'empty';
+  // Potions can be drunk any time (even stunned).
+  if (ITEMS[id].consumable) return null;
   if (!ITEMS[id].active) return 'noActive';
   if ((c.itemCooldowns[id] ?? 0) > 0) return 'cooldown';
   const isCleanse = ITEMS[id].active!.effect.type === 'cleanse';
@@ -92,6 +94,13 @@ export function useItemActive(world: World, e: Entity, slot: number, target: Vec
   if (itemUseBlocker(e, slot)) return false;
   const c = e.champion!;
   const id = c.items[slot]!;
+  const potion = ITEMS[id].consumable;
+  if (potion) {
+    e.statuses.push({ type: 'regen', hpPerSec: potion.hpPerSec ?? 0, manaPerSec: potion.manaPerSec ?? 0, remaining: potion.duration });
+    spendCharge(e, slot);
+    world.emit({ type: 'itemUsed', id: e.id, itemId: id, pos: { ...e.pos } });
+    return true;
+  }
   const def = itemActiveAbility(id)!;
   if (!performAbility(world, e, def, target)) return false;
   c.itemCooldowns[id] = def.cooldown;

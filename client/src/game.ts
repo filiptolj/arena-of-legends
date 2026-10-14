@@ -15,7 +15,9 @@ import { Hud } from './ui/hud';
 import { Minimap } from './ui/minimap';
 import { WorldOverlay } from './ui/overlay';
 import type { Session } from './session';
+import { Scoreboard } from './ui/scoreboard';
 import { Shop } from './ui/shop';
+import { TargetFrame } from './ui/targetFrame';
 
 /** Client game: renders a Session's world with interpolation and turns input into commands. */
 export class Game {
@@ -36,6 +38,9 @@ export class Game {
   private readonly minimap: Minimap;
   private readonly hoverRing: THREE.Mesh;
   private readonly shop: Shop;
+  private readonly targetFrame: TargetFrame;
+  private readonly scoreboard: Scoreboard;
+  private readonly selectRing: THREE.Mesh;
   private readonly fog: FogOfWar;
   private readonly mapView: MapView;
   private readonly team: Team;
@@ -95,6 +100,11 @@ export class Game {
     this.hoverRing = makeGroundRing(0.9, 1.15, 0xff3b3b, 0.9);
     this.hoverRing.visible = false;
     this.scene.add(this.hoverRing);
+    this.selectRing = makeGroundRing(1.0, 1.3, 0xffd75a, 0.95);
+    this.selectRing.visible = false;
+    this.scene.add(this.selectRing);
+    this.targetFrame = new TargetFrame(hudRoot);
+    this.scoreboard = new Scoreboard(hudRoot, this.playerId);
 
     this.overlay = new WorldOverlay(overlayRoot, this.cam.camera, this.team);
     this.hud = new Hud(hudRoot, this.world, this.playerId, this.team);
@@ -109,6 +119,8 @@ export class Game {
       clickMarker: (p, attack) => this.effects.clickMarker(p, attack),
       toggleHelp: () => this.hud.toggleHelp(),
       toggleShop: (open) => this.shop.toggle(open),
+      select: (id) => this.targetFrame.select(id),
+      showScore: (show) => this.scoreboard.show(show),
     });
 
     this.minimap = new Minimap(
@@ -183,10 +195,20 @@ export class Game {
     this.overlay.update(this.world, this.views, dt);
     this.hud.update(this.world, dt);
     this.shop.update();
+    this.targetFrame.update(this.world, this.world.vision[this.team]);
+    this.scoreboard.update(this.world);
     this.minimap.draw(this.world, this.cam.groundFrustum());
   }
 
   private updateIndicators(playerPos: Vec2): void {
+    const selected = this.world.get(this.targetFrame.selectedId);
+    const sv = selected && this.views.get(selected.id);
+    this.selectRing.visible = !!sv && sv.seen && !selected.dead;
+    if (selected && sv) {
+      this.selectRing.position.set(sv.renderPos.x, 0.07, sv.renderPos.z);
+      this.selectRing.scale.setScalar(selected.radius + 0.4);
+    }
+
     const hovered = this.input.hovered;
     const hv = hovered && this.views.get(hovered.id);
     this.hoverRing.visible = !!hv;

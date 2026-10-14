@@ -159,7 +159,9 @@ export class Hud {
         <tr><td>S</td><td>Stop</td></tr>
         <tr><td>B</td><td>Recall to base</td></tr>
         <tr><td>P</td><td>Open shop (buy in base or while dead)</td></tr>
-        <tr><td>1 – 6</td><td>Use item actives (e.g. Ward Totem)</td></tr>
+        <tr><td>1 – 6</td><td>Use items: potions, Ward Totem, actives</td></tr>
+        <tr><td>Left click</td><td>Inspect a unit (health, mana, stats)</td></tr>
+        <tr><td>Tab (hold)</td><td>Scoreboard</td></tr>
         <tr><td>Y / Space</td><td>Toggle camera lock / center camera</td></tr>
         <tr><td>Mouse wheel</td><td>Zoom</td></tr>
         <tr><td>Minimap</td><td>Left: move camera · Right: move champion</td></tr>
@@ -304,8 +306,9 @@ export class Hud {
 
     c.items.forEach((id, i) => {
       const el = this.inventory[i];
-      const icon = id ? ITEMS[id].icon : '';
-      if (el.icon.textContent !== icon) el.icon.textContent = icon;
+      const charges = c.itemCharges[i] ?? 0;
+      const icon = id ? `${ITEMS[id].icon}${charges > 1 ? `<span class="charges">${charges}</span>` : ''}` : '';
+      if (el.icon.innerHTML !== icon) el.icon.innerHTML = icon;
       const active = id ? ITEMS[id].active : undefined;
       el.root.classList.toggle('has-active', !!active);
       const cd = id && active ? (c.itemCooldowns[id] ?? 0) / active.cooldown : 0;
@@ -361,7 +364,12 @@ export class Hud {
     } else if (this.hoveredItem !== null && c.items[this.hoveredItem]) {
       const item = ITEMS[c.items[this.hoveredItem]!];
       const a = item.active;
-      const activeHtml = a ? `<div style="margin-top:6px"><b>Active – ${a.name}</b> [${this.hoveredItem + 1}]<br>${a.description}<div class="meta">Cooldown: ${a.cooldown}s</div></div>` : '';
+      const potion = item.consumable;
+      const activeHtml = a
+        ? `<div style="margin-top:6px"><b>Active – ${a.name}</b> [${this.hoveredItem + 1}]<br>${a.description}<div class="meta">Cooldown: ${a.cooldown}s</div></div>`
+        : potion
+          ? `<div style="margin-top:6px"><b>Drink</b> [${this.hoveredItem + 1}]: restores ${potion.hpPerSec ? `${Math.round(potion.hpPerSec * potion.duration)} health` : `${Math.round((potion.manaPerSec ?? 0) * potion.duration)} mana`} over ${potion.duration}s</div>`
+          : '';
       this.tooltip.innerHTML = `<h4>${item.icon} ${item.name}</h4><div>${statLines(item.stats).join('<br>')}</div>${activeHtml}<div class="meta">Click to open the shop</div>`;
       this.tooltip.style.display = 'block';
     } else {

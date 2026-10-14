@@ -21,10 +21,12 @@ const BLOCK_REASON: Record<BuyFailure, string> = {
   gold: 'Not enough gold',
   full: 'Inventory full',
   unique: 'Only one of these allowed',
+  stack: 'That stack is full',
   unknown: 'Unavailable',
 };
 
 const TIERS: { tier: ItemDef['tier']; label: string }[] = [
+  { tier: 'consumable', label: 'Consumables' },
   { tier: 'basic', label: 'Basic' },
   { tier: 'epic', label: 'Epic' },
   { tier: 'legendary', label: 'Legendary' },
@@ -85,6 +87,14 @@ export class Shop {
   private onClick(e: MouseEvent): void {
     const t = e.target as HTMLElement;
     if (t.closest('.shop-close')) return this.toggle(false);
+    const tab = t.closest<HTMLElement>('[data-tab]')?.dataset.tab;
+    if (tab === 'recommended' || tab === 'all') {
+      this.tab = tab;
+      this.built = false;
+      this.detailKey = '';
+      this.inventoryKey = '';
+      return;
+    }
     if (t.closest('.shop-buy')) return this.buy(this.selected);
     if (t.closest('.shop-sell') && this.selectedSlot !== null) return this.sell(this.selectedSlot);
     const item = t.closest<HTMLElement>('[data-item]')?.dataset.item;
@@ -104,6 +114,9 @@ export class Shop {
   }
 
   private built = false;
+  private tab: 'recommended' | 'all' = 'recommended';
+  /** The build item the recommended "build path" section currently shows. */
+  private pathFor: ItemId | null = null;
   private goldEl!: HTMLElement;
   private detailEl!: HTMLElement;
   private inventoryEl!: HTMLElement;
@@ -118,20 +131,45 @@ export class Shop {
   }
 
   /** Builds the static skeleton once; later updates patch it in place so clicks never hit replaced nodes. */
-  private build(defId: string): void {
+  private section(title: string, ids: ItemId[]): string {
+    return `<div class="shop-section"><h4>${title}</h4><div class="item-row">${ids.map((id) => this.cardHtml(ITEMS[id])).join('')}</div></div>`;
+  }
+
+  /** Every component (recursively) needed for `id`, in buy order, without duplicates. */
+  private buildPath(id: ItemId): ItemId[] {
+    const out: ItemId[] = [];
+    const walk = (it: ItemId) => {
+      for (const comp of ITEMS[it].from) walk(comp);
+      if (!out.includes(it)) out.push(it);
+    };
+    walk(id);
+    return out;
+  }
+
+  private build(defId: string, items: (ItemId | null)[]): void {
     const champ = CHAMPIONS[defId];
-    const sections = [
-      `<div class="shop-section"><h4>Recommended for ${champ.name}</h4><div class="item-row">${champ.build.map((id) => this.cardHtml(ITEMS[id])).join('')}</div></div>`,
-      ...TIERS.map(
-        ({ tier, label }) =>
-          `<div class="shop-section"><h4>${label}</h4><div class="item-row">${Object.values(ITEMS)
-            .filter((i) => i.tier === tier)
-            .map((i) => this.cardHtml(i))
-            .join('')}</div></div>`,
-      ),
-    ].join('');
+    let sections: string;
+    if (this.tab === 'recommended') {
+      // The next build item you don't own yet, broken into its components.
+      const next = champ.build.find((id) => !items.includes(id) && !ITEMS[id].consumable);
+      sections = [
+        this.section('Starter', ['healthPotion', 'manaPotion', 'wardTotem']),
+        this.section(`Recommended build for ${champ.name}`, champ.build),
+        next ? this.section(`Build path: ${ITEMS[next].name}`, this.buildPath(next)) : '',
+      ].join('');
+      this.pathFor = next ?? null;
+    } else {
+      sections = TIERS.map(({ tier, label }) =>
+        this.section(label, Object.values(ITEMS).filter((i) => i.tier === tier).map((i) => i.id)),
+      ).join('');
+    }
     this.el.innerHTML = `
-      <div class="shop-header"><h2>Shop</h2><span class="gold"></span><button class="shop-close">✕</button></div>
+      <div class="shop-header"><h2>Shop</h2>
+        <div class="shop-tabs">
+          <button class="shop-tab ${this.tab === 'recommended' ? 'active' : ''}" data-tab="recommended">Recommended</button>
+          <button class="shop-tab ${this.tab === 'all' ? 'active' : ''}" data-tab="all">All items</button>
+        </div>
+        <span class="gold"></span><button class="shop-close">✕</button></div>
       <div class="shop-body">
         <div class="shop-items">${sections}</div>
         <div class="shop-detail"></div>
@@ -148,7 +186,13 @@ export class Shop {
     const me = this.world.get(this.playerId);
     const c = me?.champion;
     if (!me || !c) return;
-    if (!this.built) this.build(c.defId);
+    // Rebuild when the recommended build path moves on to the next item.
+    const next = CHAMPIONS[c.defId].build.find((id) => !c.items.includes(id) && !ITEMS[id].consumable) ?? null;
+    if (!this.built || (this.tab === 'recommended' && next !== this.pathFor)) {
+      this.build(c.defId, c.items);
+      this.detailKey = '';
+      this.inventoryKey = '';
+    }
 
     const gold = `💰 ${Math.floor(c.gold)}`;
     if (this.goldEl.textContent !== gold) this.goldEl.textContent = gold;
@@ -169,6 +213,16 @@ export class Shop {
         </div>
         <ul class="stat-list">${statLines(sel.stats).map((l) => `<li>${l}</li>`).join('')}</ul>
         ${sel.active ? `<div class="small"><b>Active – ${sel.active.name}</b> (${sel.active.cooldown}s)<br><span class="muted">${sel.active.description}</span></div>` : ''}
+        ${
+          sel.consumable
+            ? `<div class="small"><b>Consumable</b> (press its number key)<br><span class="muted">Restores ${[
+                sel.consumable.hpPerSec ? `${Math.round(sel.consumable.hpPerSec * sel.consumable.duration)} health` : '',
+                sel.consumable.manaPerSec ? `${Math.round(sel.consumable.manaPerSec * sel.consumable.duration)} mana` : '',
+              ]
+                .filter(Boolean)
+                .join(' and ')} over ${sel.consumable.duration}s. Stacks up to ${sel.consumable.maxStack}.</span></div>`
+            : ''
+        }
         ${sel.unique ? `<div class="muted small">Unique: ${sel.unique}</div>` : ''}
         ${sel.from.length ? `<div class="muted small">Recipe</div><div class="item-row">${sel.from.map((id) => this.cardHtml(ITEMS[id])).join('')}</div>` : ''}
         ${into.length ? `<div class="muted small">Builds into</div><div class="item-row">${into.map((i) => this.cardHtml(i)).join('')}</div>` : ''}
@@ -193,13 +247,15 @@ export class Shop {
       card.classList.toggle('owned', c.items.includes(id));
     }
 
-    const inventoryKey = `${c.items.join(',')}|${sellSlot}`;
+    const inventoryKey = `${c.items.join(',')}|${c.itemCharges.join(',')}|${sellSlot}`;
     if (inventoryKey !== this.inventoryKey) {
       this.inventoryKey = inventoryKey;
       this.inventoryEl.innerHTML = `<span class="muted">Inventory</span>${c.items
         .map(
           (id, i) =>
-            `<div class="inv-slot ${i === sellSlot ? 'selected' : ''}" data-slot="${i}" title="${id ? ITEMS[id].name : 'Empty'}">${id ? ITEMS[id].icon : ''}</div>`,
+            `<div class="inv-slot ${i === sellSlot ? 'selected' : ''}" data-slot="${i}" title="${id ? ITEMS[id].name : 'Empty'}">${id ? ITEMS[id].icon : ''}${
+              c.itemCharges[i] > 1 ? `<span class="charges">${c.itemCharges[i]}</span>` : ''
+            }</div>`,
         )
         .join('')}`;
     }

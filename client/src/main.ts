@@ -5,6 +5,8 @@ import { LocalSession, type Session } from './session';
 import { showMainMenu } from './ui/menu';
 
 const hud = document.getElementById('hud')!;
+// The game uses right-click everywhere (HUD included); never show the browser's context menu.
+window.addEventListener('contextmenu', (e) => e.preventDefault());
 // Start downloading the character models while the player is in the menus.
 const characters = loadCharacters();
 

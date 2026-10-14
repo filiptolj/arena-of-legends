@@ -75,6 +75,8 @@ export interface EntitySpawn {
   structure?: { lane?: LaneId; tier?: number };
   ward?: { ownerId: EntityId; expiresAt: number };
   champion?: { defId: string; name: string; isBot: boolean; lane: LaneId };
+  /** Fixed combat stats of non-champions, for the unit inspector: [ad, armor, mr, attack speed, move speed]. */
+  stats?: [number, number, number, number, number];
 }
 
 /** Per-snapshot state of a visible entity. */
@@ -93,7 +95,7 @@ export interface EntityUpdate {
   st: StatusEffect[];
   /** Combat stats (champions only — the HUD shows them). */
   stats?: [ad: number, ap: number, as: number, armor: number, mr: number, ms: number, ls: number, cdr: number, hpRegen: number];
-  champ?: Omit<ChampionState, 'defId' | 'name' | 'isBot' | 'lane' | 'lastChampionAttacker' | 'aggroUntil'> & { aggroUntil: number };
+  champ?: Omit<ChampionState, 'defId' | 'name' | 'isBot' | 'lane' | 'lastChampionAttacker' | 'aggroUntil' | 'recentAttackers'> & { aggroUntil: number };
 }
 
 export interface CampUpdate {
@@ -134,6 +136,7 @@ function spawnOf(e: Entity): EntitySpawn {
   if (e.structure) s.structure = { ...e.structure };
   if (e.ward) s.ward = { ...e.ward };
   if (e.champion) s.champion = { defId: e.champion.defId, name: e.champion.name, isBot: e.champion.isBot, lane: e.champion.lane };
+  else s.stats = [e.attackDamage, e.armor, e.magicResist, e.attackSpeed, e.moveSpeed];
   return s;
 }
 
@@ -163,6 +166,9 @@ function updateOf(e: Entity): EntityUpdate {
       deaths: c.deaths,
       abilities: c.abilities,
       items: c.items,
+      itemCharges: c.itemCharges,
+      assists: c.assists,
+      cs: c.cs,
       itemCooldowns: c.itemCooldowns,
       respawnTimer: c.respawnTimer,
       recallTimer: c.recallTimer,
@@ -292,6 +298,7 @@ function entityFromSpawn(s: EntitySpawn): Entity {
     revealedUntil: -Infinity,
     sightRange: s.sightRange,
   };
+  if (s.stats) [e.attackDamage, e.armor, e.magicResist, e.attackSpeed, e.moveSpeed] = s.stats;
   if (s.minion) e.minion = { ...s.minion, waypoints: [], waypointIndex: 0, thinkTimer: 0, chaseOrigin: null };
   if (s.monster) e.monster = { ...s.monster, leashing: false, chaseTime: 0 };
   if (s.structure) e.structure = { ...s.structure };
@@ -306,6 +313,10 @@ function entityFromSpawn(s: EntitySpawn): Entity {
       deaths: 0,
       abilities: [],
       items: [],
+      itemCharges: [],
+      assists: 0,
+      cs: 0,
+      recentAttackers: [],
       itemCooldowns: {},
       respawnTimer: 0,
       recallTimer: 0,

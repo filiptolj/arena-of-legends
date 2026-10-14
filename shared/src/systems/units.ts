@@ -168,6 +168,11 @@ export function updateChampion(world: World, e: Entity, dt: number): void {
 
   let hpRegen = e.hpRegen;
   let manaRegen = e.manaRegen + (hasBlessing(e, 'azure') ? AZURE_MANA_REGEN : 0);
+  for (const st of e.statuses) {
+    if (st.type !== 'regen') continue;
+    hpRegen += st.hpPerSec;
+    manaRegen += st.manaPerSec;
+  }
   const fountain = MAP.fountains[e.team as Team];
   if (dist(e.pos, fountain) <= MAP.fountainRadius) {
     hpRegen += e.maxHp * FOUNTAIN_HEAL_PCT;

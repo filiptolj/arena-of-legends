@@ -15,7 +15,7 @@ import {
 import { type LaneId, MAP, type Team } from './map.js';
 import { type Vec2, dist } from './math.js';
 import { NavGrid } from './navgrid.js';
-import { buyItem, emptyInventory, sellItem } from './items.js';
+import { buyItem, emptyCharges, emptyInventory, sellItem } from './items.js';
 import { BotController } from './ai/bot.js';
 import { castAbility, useItemActive } from './systems/abilities.js';
 import { type CampState, createCamps, updateCamps, updateMonster } from './systems/jungle.js';
@@ -170,6 +170,10 @@ export class World {
       deaths: 0,
       abilities: def.abilities.map(() => ({ cooldown: 0 })),
       items: emptyInventory(),
+      itemCharges: emptyCharges(),
+      assists: 0,
+      cs: 0,
+      recentAttackers: [],
       itemCooldowns: {},
       respawnTimer: 0,
       recallTimer: 0,

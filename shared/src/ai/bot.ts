@@ -1,6 +1,6 @@
 import { CHAMPIONS } from '../champions.js';
 import { DT } from '../constants.js';
-import { nextPurchase, purchasePrice } from '../items.js';
+import { buyBlocker, nextPurchase, purchasePrice } from '../items.js';
 import { MAP, type Team, laneWaypoints } from '../map.js';
 import { type Vec2, dist, moveToward } from '../math.js';
 import { ITEMS } from '../items.js';
@@ -57,6 +57,11 @@ export class BotController {
 
     const enemyChamp = this.nearestEnemyChampion(world, me, ENGAGE_RANGE);
     this.support(world, me);
+    // Drink a potion when hurt (one at a time).
+    if (hpPct < 0.55 && !me.statuses.some((st) => st.type === 'regen')) {
+      const slot = c.items.indexOf('healthPotion');
+      if (slot >= 0) world.issue({ type: 'useItem', unitId: me.id, slot, target: me.pos });
+    }
     // Quicksilver-style cleanses break crowd control mid-fight.
     if (me.statuses.some((st) => st.type === 'root' || st.type === 'stun' || (st.type === 'slow' && st.amount >= 0.3))) {
       this.useItem(world, me, (fx) => fx.type === 'cleanse', me.pos);
@@ -89,6 +94,12 @@ export class BotController {
   /** Buys the next step of the build. Returns true if a purchase was issued. */
   private shop(world: World, me: Entity): boolean {
     const c = me.champion!;
+    // Early on, keep a couple of health potions.
+    const potions = c.items.reduce((n, it, i) => n + (it === 'healthPotion' ? c.itemCharges[i] : 0), 0);
+    if (c.level < 11 && potions < 2 && !buyBlocker(me, 'healthPotion') && c.gold >= 250) {
+      world.issue({ type: 'buy', unitId: me.id, itemId: 'healthPotion' });
+      return true;
+    }
     for (const target of CHAMPIONS[c.defId].build) {
       if (c.items.includes(target)) continue;
       const step = nextPurchase(me, target);

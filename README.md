@@ -41,7 +41,9 @@ Other scripts:
 | Q W E R | Cast at the cursor (R unlocks at level 6) |
 | S / B | Stop / Recall |
 | P | Shop (buy in your fountain or while dead; right-click an item to buy/sell) |
-| 1 – 6 | Use item actives (Ward Totem, Stoneskin, Gale, Time Stop, Bloodlust) |
+| 1 – 6 | Use items: potions, Ward Totem, actives (Stoneskin, Gale, Time Stop, Bloodlust, Quicksilver) |
+| Left click | Inspect any unit: health, mana, stats, items |
+| Tab (hold) | Scoreboard: K/D/A, CS, items, team kills and turrets |
 | Y / Space | Toggle camera lock / center the camera |
 | Mouse wheel | Zoom |
 | Minimap | Left: pan the camera · Right: move the champion |

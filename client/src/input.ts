@@ -13,6 +13,10 @@ export interface InputCallbacks {
   toggleHelp: () => void;
   /** Toggles the shop, or forces it open/closed. */
   toggleShop: (open?: boolean) => void;
+  /** Left-clicking a unit inspects it (null clears the selection). */
+  select: (id: EntityId | null) => void;
+  /** Hold Tab for the scoreboard. */
+  showScore: (show: boolean) => void;
 }
 
 /** Translates mouse and keyboard into champion commands, LoL-style. */
@@ -50,8 +54,10 @@ export class InputController {
     window.addEventListener('keyup', (e) => {
       this.cam.keys.delete(e.code);
       if (e.code === 'Space') this.cam.centerHeld = false;
+      if (e.code === 'Tab') this.cb.showScore(false);
     });
     window.addEventListener('blur', () => {
+      this.cb.showScore(false);
       this.rightHeld = false;
       this.cam.keys.clear();
       this.cam.centerHeld = false;
@@ -81,6 +87,11 @@ export class InputController {
   pickEnemy(clientX: number, clientY: number): Entity | null {
     const player = this.player;
     if (!player) return null;
+    return this.pickUnit(clientX, clientY, (e) => e.team !== player.team);
+  }
+
+  /** The visible unit under the cursor that passes `filter`. */
+  pickUnit(clientX: number, clientY: number, filter: (e: Entity) => boolean): Entity | null {
     const r = this.canvas.getBoundingClientRect();
     const mx = clientX - r.left;
     const my = clientY - r.top;
@@ -89,7 +100,7 @@ export class InputController {
     let best: Entity | null = null;
     let bestD = Infinity;
     for (const e of this.world.entities.values()) {
-      if (e.dead || e.team === player.team) continue;
+      if (e.dead || !filter(e)) continue;
       const view = this.views.get(e.id);
       if (!view || !view.seen) continue;
       a.copy(view.renderPos).project(this.cam.camera);
@@ -114,6 +125,11 @@ export class InputController {
   }
 
   private onMouseDown(e: MouseEvent): void {
+    // Plain left-click inspects whatever is under the cursor (works while dead too).
+    if (e.button === 0 && !this.attackMoveArmed) {
+      this.cb.select(this.pickUnit(e.clientX, e.clientY, () => true)?.id ?? null);
+      return;
+    }
     const player = this.player;
     if (!player || player.dead || this.world.winner) return;
     if (e.button === 2) {
@@ -158,6 +174,8 @@ export class InputController {
   }
 
   private onKeyDown(e: KeyboardEvent): void {
+    // Tab would otherwise move keyboard focus around the page.
+    if (e.code === 'Tab') e.preventDefault();
     if (e.repeat && e.code !== 'Space') return;
     this.cam.keys.add(e.code);
     const slot = ABILITY_KEYS[e.code];
@@ -196,6 +214,10 @@ export class InputController {
         break;
       case 'KeyP':
         this.cb.toggleShop();
+        break;
+      case 'Tab':
+        e.preventDefault();
+        this.cb.showScore(true);
         break;
       case 'Escape':
         this.attackMoveArmed = false;

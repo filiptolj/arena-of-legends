@@ -26,6 +26,8 @@ export type Order =
 export type StatusEffect =
   | { type: 'slow'; amount: number; remaining: number }
   | { type: 'stun'; remaining: number }
+  /** Potion effect: restores health/mana every second. */
+  | { type: 'regen'; hpPerSec: number; manaPerSec: number; remaining: number }
   /** Can't move (or dash), but can still attack and cast. */
   | { type: 'root'; remaining: number }
   /** Invisible to enemies unless they're right next to you; broken by attacking or casting. */
@@ -62,6 +64,13 @@ export interface ChampionState {
   deaths: number;
   abilities: AbilityState[];
   items: (ItemId | null)[];
+  /** Stack size per inventory slot (potions); 0 for ordinary items. */
+  itemCharges: number[];
+  /** Assists and creep score, for the scoreboard. */
+  assists: number;
+  cs: number;
+  /** Enemy champions that damaged this one recently, for assist credit. */
+  recentAttackers: { id: EntityId; time: number }[];
   /** Item active cooldowns, keyed by item id (two copies share one cooldown). */
   itemCooldowns: Record<ItemId, number>;
   respawnTimer: number;

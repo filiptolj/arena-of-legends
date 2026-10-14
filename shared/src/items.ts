@@ -19,7 +19,15 @@ export interface ItemStats {
   cooldownReduction?: number;
 }
 
-export type ItemTier = 'basic' | 'epic' | 'legendary';
+export type ItemTier = 'consumable' | 'basic' | 'epic' | 'legendary';
+
+/** Potions: drink with keys 1-6; stack in one slot and restore health/mana over time. */
+export interface Consumable {
+  hpPerSec?: number;
+  manaPerSec?: number;
+  duration: number;
+  maxStack: number;
+}
 
 /** An activatable item effect, cast with number keys 1-6. Reuses the ability effect system. */
 export interface ItemActive {
@@ -42,6 +50,7 @@ export interface ItemDef {
   /** Only one item of a unique group may be owned (e.g. boots). */
   unique?: string;
   active?: ItemActive;
+  consumable?: Consumable;
 }
 
 export const SELL_RATIO = 0.7;
@@ -61,6 +70,14 @@ const item = (
 
 export const ITEMS: Record<ItemId, ItemDef> = Object.fromEntries(
   [
+    {
+      id: 'healthPotion', name: 'Health Potion', icon: '🧪', tier: 'consumable', cost: 50, stats: {}, from: [],
+      consumable: { hpPerSec: 10, duration: 15, maxStack: 5 },
+    } satisfies ItemDef,
+    {
+      id: 'manaPotion', name: 'Mana Potion', icon: '🫙', tier: 'consumable', cost: 40, stats: {}, from: [],
+      consumable: { manaPerSec: 7, duration: 15, maxStack: 5 },
+    } satisfies ItemDef,
     item('ironBlade', 'Iron Blade', '🗡️', 'basic', 350, { attackDamage: 10 }),
     item('spellTome', 'Spell Tome', '📘', 'basic', 435, { abilityPower: 20 }),
     item('quickDagger', 'Quick Dagger', '🔪', 'basic', 300, { attackSpeedPct: 0.12 }),
@@ -199,7 +216,14 @@ export function canShop(e: Entity): boolean {
   return e.dead || dist(e.pos, MAP.fountains[e.team as Team]) <= MAP.fountainRadius + 2;
 }
 
-export type BuyFailure = 'location' | 'gold' | 'full' | 'unique' | 'unknown';
+export type BuyFailure = 'location' | 'gold' | 'full' | 'unique' | 'stack' | 'unknown';
+
+/** A slot holding this consumable that still has room in its stack, or -1. */
+function stackSlot(e: Entity, itemId: ItemId): number {
+  const c = e.champion!;
+  const max = ITEMS[itemId].consumable?.maxStack ?? 1;
+  return c.items.findIndex((it, i) => it === itemId && c.itemCharges[i] < max);
+}
 
 /** Why `itemId` can't be bought right now, or null if it can. */
 export function buyBlocker(e: Entity, itemId: ItemId): BuyFailure | null {
@@ -213,8 +237,9 @@ export function buyBlocker(e: Entity, itemId: ItemId): BuyFailure | null {
     const clash = c.items.some((it, i) => it && ITEMS[it].unique === def.unique && !consumed.includes(i));
     if (clash) return 'unique';
   }
+  if (def.consumable && stackSlot(e, itemId) >= 0) return null;
   const free = c.items.filter((it) => it === null).length + consumed.length;
-  if (free < 1) return 'full';
+  if (free < 1) return def.consumable && c.items.includes(itemId) ? 'stack' : 'full';
   return null;
 }
 
@@ -223,12 +248,36 @@ export function buyItem(e: Entity, itemId: ItemId): boolean {
   if (buyBlocker(e, itemId)) return false;
   const c = e.champion!;
   const { cost, consumed } = purchasePrice(itemId, c.items);
-  for (const slot of consumed) c.items[slot] = null;
+  c.gold -= cost;
+  // Potions stack into an existing slot when there's room.
+  const stack = ITEMS[itemId].consumable ? stackSlot(e, itemId) : -1;
+  if (stack >= 0) {
+    c.itemCharges[stack]++;
+    return true;
+  }
+  for (const slot of consumed) {
+    c.items[slot] = null;
+    c.itemCharges[slot] = 0;
+  }
   const slot = c.items.indexOf(null);
   c.items[slot] = itemId;
-  c.gold -= cost;
+  c.itemCharges[slot] = ITEMS[itemId].consumable ? 1 : 0;
   recomputeChampionStats(e);
   return true;
+}
+
+/** Removes one charge of a consumable (or the item itself); returns the item id. */
+export function spendCharge(e: Entity, slot: number): ItemId | null {
+  const c = e.champion;
+  const id = c?.items[slot];
+  if (!c || !id) return null;
+  if (ITEMS[id].consumable && c.itemCharges[slot] > 1) {
+    c.itemCharges[slot]--;
+  } else {
+    c.items[slot] = null;
+    c.itemCharges[slot] = 0;
+  }
+  return id;
 }
 
 export function sellItem(e: Entity, slot: number): number {
@@ -236,8 +285,9 @@ export function sellItem(e: Entity, slot: number): number {
   if (!c || !canShop(e)) return 0;
   const id = c.items[slot];
   if (!id) return 0;
+  // Potions sell one at a time.
   const refund = Math.floor(ITEMS[id].cost * SELL_RATIO);
-  c.items[slot] = null;
+  spendCharge(e, slot);
   c.gold += refund;
   recomputeChampionStats(e);
   return refund;
@@ -264,6 +314,10 @@ export function nextPurchase(e: Entity, target: ItemId): ItemId | null {
 
 export function emptyInventory(): (ItemId | null)[] {
   return Array.from({ length: INVENTORY_SIZE }, () => null);
+}
+
+export function emptyCharges(): number[] {
+  return Array.from({ length: INVENTORY_SIZE }, () => 0);
 }
 
 /**

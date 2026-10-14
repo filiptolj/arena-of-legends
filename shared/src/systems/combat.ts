@@ -28,6 +28,9 @@ import { onMonsterDamaged } from './jungle.js';
 import { absorbWithShields, applyStatus, armorOf, attackSpeedOf, hasBlessing, inStasis } from './status.js';
 import { isVisibleTo } from './vision.js';
 
+/** Damage within this many seconds before a champion kill earns an assist. */
+const ASSIST_WINDOW = 10;
+
 /** Edge-to-edge distance check against the attacker's range. */
 export function inAttackRange(a: Entity, b: Entity, extra = 0): boolean {
   return dist(a.pos, b.pos) - a.radius - b.radius <= a.attackRange + extra;
@@ -133,6 +136,9 @@ export function applyDamage(world: World, sourceId: EntityId, target: Entity, ra
     if (source?.champion) {
       source.champion.aggroUntil = world.time + CHAMPION_AGGRO_TIME;
       target.champion.lastChampionAttacker = { id: source.id, time: world.time };
+      const recent = target.champion.recentAttackers.filter((a) => a.id !== source.id && world.time - a.time < ASSIST_WINDOW);
+      recent.push({ id: source.id, time: world.time });
+      target.champion.recentAttackers = recent;
     }
   }
   if (target.hp <= 0) handleDeath(world, target, source);
@@ -161,7 +167,10 @@ function handleDeath(world: World, victim: Entity, killer: Entity | undefined): 
   switch (victim.kind) {
     case 'minion': {
       const stats = MINION_STATS[victim.minion!.type];
-      if (killer?.champion) addGold(world, killer, stats.gold, victim);
+      if (killer?.champion) {
+        addGold(world, killer, stats.gold, victim);
+        killer.champion.cs++;
+      }
       shareXp(world, nearbyEnemyChamps, stats.xp);
       break;
     }
@@ -180,6 +189,13 @@ function handleDeath(world: World, victim: Entity, killer: Entity | undefined): 
         credit.champion.kills++;
         addGold(world, credit, CHAMPION_KILL_GOLD, victim);
       }
+      // Everyone else who hit the victim recently gets an assist.
+      for (const a of c.recentAttackers) {
+        if (a.id === credit?.id || world.time - a.time > ASSIST_WINDOW) continue;
+        const helper = world.get(a.id);
+        if (helper?.champion) helper.champion.assists++;
+      }
+      c.recentAttackers = [];
       world.emit({ type: 'championKill', killerId: credit?.id ?? killer?.id ?? null, victimId: victim.id });
       shareXp(world, nearbyEnemyChamps, 100 + 40 * c.level);
       break;
@@ -215,6 +231,7 @@ function handleMonsterDeath(world: World, victim: Entity, killer: Entity | undef
   const team: Team | null = killer && killer.team !== 'neutral' ? killer.team : null;
   if (team) {
     if (killer?.champion && def.gold > 0) addGold(world, killer, def.gold, victim);
+    if (killer?.champion) killer.champion.cs++;
     const nearby = world.champions().filter((c) => !c.dead && c.team === team && dist(c.pos, victim.pos) <= XP_SHARE_RANGE);
     shareXp(world, nearby, def.xp);
   }
